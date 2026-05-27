@@ -1,15 +1,14 @@
 // ──────────────────────────────────────────────────────────
-// ADDIE — ADHD Daily Assistant · Final deployable build
-//
-// Goes in src/App.jsx of a Vite + React project.
-// Set VITE_ANTHROPIC_KEY in your host's environment variables.
-// Full step-by-step deploy guide is in the chat.
+// ADDIE — ADHD Daily Assistant · Deployable build v2
+// Week-1 field-note revisions applied.
+// Set VITE_ANTHROPIC_KEY in your Vercel environment variables.
 // ──────────────────────────────────────────────────────────
 
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_KEY || "";
 const STORAGE_KEY = "addie-app-state-v1";
+const IDLE_RESET_MS = 60 * 60 * 1000; // 1 hour idle → re-show starters
 
 const STARTERS = [
   { icon: "🌅", label: "Morning check-in", prompt: "Morning check-in" },
@@ -45,8 +44,11 @@ function buildSystemPrompt(tasks, grocery) {
   const gItems = grocery.filter(g => !g.checked);
   const withNext = tasks.filter(t => t.nextStep && !t.done);
 
-  return `You are Addie, a warm, direct, no-nonsense AI coach for high-achieving professionals with ADHD. You are a thinking partner — not a task manager, not a therapist, not a productivity guru.
-You deeply understand ADHD: initiation struggles, time blindness, overwhelm, open loops, shame spirals, hyperfocus, and the exhausting extra cognitive load of high-responsibility life.
+  return `You are Addie, a warm, direct, no-nonsense AI coach for high-achieving professionals with ADHD. Thinking partner — not a task manager, not a therapist.
+
+Be DECISIVE. When the user gives you enough context, give your best answer in one shot — don't drag a question out across many turns. One clarifying question is fine; three is too many. ADHD brains lose momentum if you keep asking.
+
+NEVER guess dates, times, prices, or facts you don't know. If a date/time isn't stated, ASK rather than fabricate. "Memorial Day" is the last Monday of May; "July 4th" is July 4th; never substitute one for another. If unsure, say so or ask.
 
 CURRENT TASK MEMORY:
 Today (max 3): ${today.length ? today.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}`).join(", ") : "empty"}
@@ -54,16 +56,19 @@ This week: ${week.length ? week.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [
 Parked: ${parked.length ? parked.map(t=>`"${t.text}" [id:${t.id}]`).join(", ") : "empty"}
 Done today: ${done.length ? done.map(t=>`"${t.text}"`).join(", ") : "none"}
 
-TASKS WITH PENDING NEXT STEPS (bring up naturally during check-ins/wind-downs):
+TASKS WITH PENDING NEXT STEPS (mention naturally during check-ins/wind-downs, once, never push):
 ${withNext.length ? withNext.map(t=>`- "${t.text}" → next: "${t.nextStep}" [id:${t.id}]`).join("\n") : "none"}
 
 GROCERY: ${gItems.length ? gItems.map(g=>`"${g.text}"${g.store?` (from ${g.store})`:""}`).join(", ") : "Empty"}
 Today has ${today.length}/${MAX_TODAY} slots. ${today.length>=MAX_TODAY?"Today is FULL.":`${MAX_TODAY-today.length} remaining.`}
 
-YOUR ROLE:
-- Reference task memory naturally. During check-in/wind-down, weave in pending next steps gently — once, never forced.
-- A countdown timer exists. When someone's stuck starting something, casually suggest time-boxing it ("want to give this just 15 minutes?"). Optional, never prescriptive about schedules.
-- When tasks or grocery items emerge, append EXACTLY this block:
+When the user mentions completing something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge.
+
+A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). Optional, never prescriptive.
+
+CALENDAR HANDOFF: When a specific date+time emerges that the user should remember ("appointment Tuesday at 3pm", "call Mom Friday morning at 10"), include a type:calendar suggestion so they can tap to add it to their phone calendar. Don't do this for vague stuff like "later today" — only concrete date+time.
+
+SUGGESTION FORMAT (append exactly when something concrete emerges, else omit entirely):
 
 SUGGESTIONS:
 - type:task | bucket:today | "task text"
@@ -74,12 +79,14 @@ SUGGESTIONS:
 - type:replace | id:TASK_ID | "concrete first step"
 - type:replace | id:TASK_ID | "concrete first step" | next:"what comes after"
 - type:nextstep | id:TASK_ID | "next step text"
+- type:complete | id:TASK_ID
+- type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
 
-Rules: type:replace swaps a vague board task for a concrete first step (no duplicates). Include next: when known. type:nextstep attaches a follow-up without replacing. Concrete actionable tasks only. Food/consumables → grocery; include store: when the user says where ("eggs from Costco"). Single purchases → task. Max 3 suggestions. If Today full, suggest week. Omit the block entirely if nothing to add.
+Rules: type:replace = swap a vague task for a concrete first step. type:nextstep = attach a follow-up. type:complete = user said they finished it. type:calendar = user mentioned a specific date+time worth saving (YYYY-MM-DDTHH:MM, 24-hour). Concrete tasks only. Food/consumables → grocery (include store: when mentioned). Single purchases → task. Max 3 suggestions per message. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
 
-ADVICE MODE: Sometimes the user just wants to think something through, not make tasks. Engage with substance, give ADHD-aware advice, don't rush to suggest tasks.
+ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
-STYLE: Warm, direct, short paragraphs. Bold one key action with **bold**. One question at a time. Never "just do X." No shame. Acknowledge wins. Smallest possible next step when stuck.`;
+STYLE: Warm, direct, short paragraphs. Bold one key action with **bold**. No "just do X." No shame. Acknowledge wins. Smallest physical first step when stuck.`;
 }
 
 export default function Addie() {
@@ -88,6 +95,7 @@ export default function Addie() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [started, setStarted] = useState(false);
+  const [lastActivity, setLastActivity] = useState(Date.now());
   const [tasks, setTasks] = useState([]);
   const [grocery, setGrocery] = useState([]);
   const [pending, setPending] = useState([]);
@@ -115,7 +123,11 @@ export default function Addie() {
         const s = JSON.parse(raw);
         if (s.tasks) setTasks(s.tasks);
         if (s.grocery) setGrocery(s.grocery);
-        if (s.messages) { setMessages(s.messages); if (s.messages.length) setStarted(true); }
+        if (s.messages) { setMessages(s.messages); }
+        if (s.lastActivity) setLastActivity(s.lastActivity);
+        // Idle reset: if it's been over IDLE_RESET_MS since last activity, show starters again
+        const idle = s.lastActivity && (Date.now() - s.lastActivity > IDLE_RESET_MS);
+        if (s.messages?.length && !idle) setStarted(true);
       }
     } catch {}
     setHydrated(true);
@@ -123,8 +135,8 @@ export default function Addie() {
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages })); } catch {}
-  }, [tasks, grocery, messages, hydrated]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity })); } catch {}
+  }, [tasks, grocery, messages, lastActivity, hydrated]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, pending]);
 
@@ -150,27 +162,64 @@ export default function Addie() {
   const clearTimer = () => { clearTimeout(timerRef.current); setTimer(null); };
   const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
+  // Voice: continuous mode with explicit stop
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
     const r = new SR();
-    r.continuous = false; r.interimResults = true; r.lang = "en-US";
-    r.onstart = () => { setListening(true); setTranscript(""); };
+    r.continuous = true; r.interimResults = true; r.lang = "en-US";
+    let finalText = "";
+    r.onstart = () => { setListening(true); setTranscript(""); finalText = ""; };
     r.onresult = e => {
-      const t = Array.from(e.results).map(x => x[0].transcript).join("");
-      setTranscript(t);
-      if (e.results[e.results.length-1].isFinal) { setInput(t); setTranscript(""); }
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const transcript = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += transcript + " ";
+        else interim += transcript;
+      }
+      const combined = (finalText + interim).trim();
+      setTranscript(combined);
+      setInput(combined);
+      // grow textarea as transcript grows
+      if (taRef.current) {
+        taRef.current.style.height = "auto";
+        taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + "px";
+      }
     };
-    r.onend = () => setListening(false);
-    r.onerror = () => setListening(false);
+    r.onend = () => { setListening(false); setTranscript(""); };
+    r.onerror = () => { setListening(false); setTranscript(""); };
     recRef.current = r; r.start();
   }, []);
   const stopListening = () => { recRef.current?.stop(); setListening(false); };
+
+  // Calendar: build a tap-to-add link (Google Calendar webcal works across phone OSes)
+  const calendarLink = (title, whenIso, minutes) => {
+    try {
+      const start = new Date(whenIso);
+      const end = new Date(start.getTime() + (minutes || 60) * 60000);
+      const fmt = (d) => d.toISOString().replace(/[-:]|\.\d{3}/g, "");
+      const u = new URL("https://calendar.google.com/calendar/render");
+      u.searchParams.set("action", "TEMPLATE");
+      u.searchParams.set("text", title);
+      u.searchParams.set("dates", `${fmt(start)}/${fmt(end)}`);
+      return u.toString();
+    } catch { return null; }
+  };
+  const fmtCalDate = (iso) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    } catch { return iso; }
+  };
 
   const parseSuggestions = (text) => {
     const block = text.match(/SUGGESTIONS:\n([\s\S]*?)(?:\n\n|$)/);
     if (!block) return { clean: text, suggestions: [] };
     const suggestions = block[1].trim().split("\n").map((l, i) => {
+      const cal = l.match(/- type:calendar \| "(.+)" \| when:"([^"]+)"(?: \| minutes:(\d+))?/);
+      if (cal) return { id: "s"+Date.now()+i, type: "calendar", title: cal[1], when: cal[2], minutes: cal[3] ? parseInt(cal[3]) : 60 };
+      const comp = l.match(/- type:complete \| id:(\S+)/);
+      if (comp) return { id: "s"+Date.now()+i, type: "complete", targetId: comp[1] };
       const gs = l.match(/- type:grocery \| "(.+)" \| store:"(.+)"/);
       if (gs) return { id: "s"+Date.now()+i, type: "grocery", text: gs[1], store: gs[2] };
       const g = l.match(/- type:grocery \| "(.+)"/);
@@ -191,7 +240,7 @@ export default function Addie() {
   const sendMessage = async (userText) => {
     if (!userText.trim() || loading) return;
     const next = [...messages, { role: "user", content: userText, id: "u"+Date.now() }];
-    setMessages(next); setInput(""); setLoading(true); setStarted(true); setPending([]);
+    setMessages(next); setInput(""); setLoading(true); setStarted(true); setPending([]); setLastActivity(Date.now());
     if (taRef.current) taRef.current.style.height = "auto";
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -212,6 +261,15 @@ export default function Addie() {
     if (s.type === "grocery") { setGrocery(p => [...p, { id:"g"+Date.now(), text:s.text, checked:false, store:s.store||"" }]); showToast(`Added: ${s.text}`); }
     else if (s.type === "replace") { setTasks(p => p.map(t => t.id===s.targetId ? {...t, text:s.text, nextStep:s.nextStep||t.nextStep} : t)); showToast("Task updated"); }
     else if (s.type === "nextstep") { setTasks(p => p.map(t => t.id===s.targetId ? {...t, nextStep:s.text} : t)); showToast("Next step saved"); }
+    else if (s.type === "complete") {
+      const t = tasks.find(t => t.id === s.targetId);
+      setTasks(p => p.map(t => t.id===s.targetId ? {...t, done:true} : t));
+      showToast(`✓  ${t?.text || "Done"}`);
+    }
+    else if (s.type === "calendar") {
+      const link = calendarLink(s.title, s.when, s.minutes);
+      if (link) window.open(link, "_blank");
+    }
     else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = s.bucket==="today"&&n>=MAX_TODAY?"week":s.bucket; setTasks(p => [...p, {id:"t"+Date.now(), text:s.text, bucket:b, done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
     setPending(p => p.filter(x => x.id !== s.id));
   };
@@ -252,6 +310,8 @@ export default function Addie() {
   const checked     = grocery.filter(g => g.checked);
   const hasSpeech   = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   const timerPct    = timer && timer.total>0 ? (timer.remaining/timer.total)*100 : 0;
+  const idleNow     = Date.now() - lastActivity > IDLE_RESET_MS;
+  const showStarters = !started || (messages.length === 0) || idleNow;
 
   const fieldStyle = { display:"block", width:"100%", height:46, minHeight:46, fontSize:14, padding:"0 14px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, fontFamily:"inherit", outline:"none", boxSizing:"border-box", appearance:"none", WebkitAppearance:"none" };
   const btnStyle = { display:"inline-flex", alignItems:"center", justifyContent:"center", height:46, padding:"0 22px", fontSize:14, borderRadius:10, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, color:C.blueText, cursor:"pointer", fontWeight:600, flexShrink:0, boxSizing:"border-box" };
@@ -273,6 +333,7 @@ export default function Addie() {
             {editing ? (
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                 <input autoFocus value={editText} onChange={e=>setEditText(e.target.value)}
+                  onFocus={e => e.target.setSelectionRange(e.target.value.length, e.target.value.length)}
                   onKeyDown={e => { if(e.key==="Enter")saveEdit(task.id); if(e.key==="Escape")cancelEdit(); }}
                   style={{ ...fieldStyle, height:42, minHeight:42 }} />
                 <div style={{ display:"flex", gap:8 }}>
@@ -354,7 +415,7 @@ export default function Addie() {
         )}
       </div>
 
-      {/* Slim persistent timer indicator */}
+      {/* Persistent timer indicator */}
       {timer && tab!=="timer" && (
         <div onClick={() => setTab("timer")} role="button"
           style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 18px", backgroundColor:timer.done?C.greenBg:C.blueBg, borderBottom:`1.5px solid ${C.borderLt}`, cursor:"pointer", flexShrink:0 }}>
@@ -369,8 +430,8 @@ export default function Addie() {
       {listening && (
         <div style={{ backgroundColor:C.blueBg, padding:"10px 20px", display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
           <span style={{ width:8, height:8, borderRadius:"50%", backgroundColor:C.blue, display:"inline-block", animation:"pulse 1s infinite" }} />
-          <span style={{ fontSize:13.5, color:C.blueText, flex:1, fontStyle:transcript?"normal":"italic" }}>{transcript||"Listening…"}</span>
-          <span onClick={stopListening} role="button" style={{ fontSize:12, color:C.blueText, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"4px 12px", cursor:"pointer", fontWeight:600 }}>Done</span>
+          <span style={{ fontSize:13.5, color:C.blueText, flex:1, fontStyle:transcript?"normal":"italic" }}>{transcript||"Listening… tap Done when finished"}</span>
+          <span onClick={stopListening} role="button" style={{ fontSize:12, color:"#fff", backgroundColor:C.blue, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontWeight:700 }}>Done</span>
         </div>
       )}
 
@@ -379,12 +440,12 @@ export default function Addie() {
 
         {tab==="chat" && (
           <div style={{ padding:"14px 16px" }}>
-            {!started && (
-              <div>
+            {showStarters && (
+              <div style={{ marginBottom: messages.length ? 16 : 0 }}>
                 <div style={{ textAlign:"center", padding:"4px 0 20px" }}>
                   <div style={{ width:46, height:46, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 10px", fontSize:23 }}>🧠</div>
-                  <h3 style={{ margin:"0 0 4px", fontSize:19, fontWeight:600, color:C.text }}>Hey, how's it going?</h3>
-                  <p style={{ margin:0, fontSize:13, color:C.text3 }}>Pick a starting point, or just tell me what's up.</p>
+                  <h3 style={{ margin:"0 0 4px", fontSize:19, fontWeight:600, color:C.text }}>{messages.length ? "Welcome back" : "Hey, how's it going?"}</h3>
+                  <p style={{ margin:0, fontSize:13, color:C.text3 }}>{messages.length ? "Pick a starting point, or just say what's up." : "Pick a starting point, or just tell me what's up."}</p>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                   {STARTERS.map(s => (
@@ -408,15 +469,22 @@ export default function Addie() {
             {loading && <div style={{ display:"flex", justifyContent:"flex-start", marginTop:12 }}><div style={{ backgroundColor:"#E9E9EB", borderRadius:18, padding:"11px 16px" }}><span style={{ fontSize:20, letterSpacing:3, color:"#8E8E93" }}>···</span></div></div>}
             {pending.length>0 && (
               <div style={{ marginTop:16 }}>
-                <p style={{ fontSize:12.5, color:C.text2, margin:"0 0 10px", fontWeight:500 }}>Add to your board?</p>
+                <p style={{ fontSize:12.5, color:C.text2, margin:"0 0 10px", fontWeight:500 }}>Confirm?</p>
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                   {pending.map(s => {
-                    const bs = s.type==="grocery" ? {bg:C.greenBg,text:C.greenText,label:"Grocery"} : s.type==="replace" ? {bg:"#FEF3C7",text:"#92400E",label:"Replace"} : s.type==="nextstep" ? {bg:"#EDE9FE",text:"#5B21B6",label:"Next step"} : BUCKET_STYLE[s.bucket];
+                    const bs = s.type==="grocery" ? {bg:C.greenBg,text:C.greenText,label:"Grocery"}
+                              : s.type==="replace" ? {bg:"#FEF3C7",text:"#92400E",label:"Replace"}
+                              : s.type==="nextstep" ? {bg:"#EDE9FE",text:"#5B21B6",label:"Next step"}
+                              : s.type==="complete" ? {bg:C.greenBg,text:C.greenText,label:"Mark done"}
+                              : s.type==="calendar" ? {bg:"#FEF3C7",text:"#92400E",label:"Calendar"}
+                              : BUCKET_STYLE[s.bucket];
+                    const taskRef = s.type==="complete" ? tasks.find(t=>t.id===s.targetId)?.text : null;
+                    const display = s.type==="calendar" ? `${s.title} · ${fmtCalDate(s.when)}` : (taskRef || s.text);
                     return (
                       <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, backgroundColor:C.bg, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"10px 14px" }}>
                         <Badge bg={bs.bg} color={bs.text}>{bs.label}</Badge>
-                        <span style={{ flex:1, fontSize:13.5, color:C.text }}>{s.text}</span>
-                        <span onClick={() => confirm(s)} role="button" style={{ fontSize:13, padding:"6px 14px", borderRadius:8, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Add</span>
+                        <span style={{ flex:1, fontSize:13.5, color:C.text }}>{display}</span>
+                        <span onClick={() => confirm(s)} role="button" style={{ fontSize:13, padding:"6px 14px", borderRadius:8, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, color:C.blueText, cursor:"pointer", fontWeight:600 }}>{s.type==="calendar"?"Add to calendar":"Confirm"}</span>
                         <span onClick={() => dismiss(s.id)} role="button" style={{ fontSize:13, padding:"6px 12px", borderRadius:8, border:`1.5px solid ${C.borderLt}`, color:C.text2, cursor:"pointer" }}>Skip</span>
                       </div>
                     );
@@ -550,10 +618,10 @@ export default function Addie() {
             <span onClick={listening?stopListening:startListening} role="button"
               style={{ width:42, height:42, borderRadius:"50%", border:`1.5px solid ${listening?"#FECACA":C.border}`, backgroundColor:listening?C.dangerBg:C.bg2, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18 }}>{listening?"🔴":"🎙️"}</span>
           )}
-          <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={handleKey}
-            placeholder={listening?"Listening…":"Message Addie…"} rows={1}
-            style={{ flex:1, resize:"none", fontSize:14, padding:"11px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box" }}
-            onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,100)+"px"; }} />
+          <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
+            placeholder={listening?"Speak naturally — tap Done when finished":"Message Addie…"} rows={1}
+            style={{ flex:1, resize:"none", fontSize:14, padding:"11px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
+            onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
             style={{ width:42, height:42, borderRadius:"50%", backgroundColor:input.trim()&&!loading?C.blue:C.bg2, cursor:input.trim()&&!loading?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color:input.trim()&&!loading?"#fff":C.text3, fontWeight:700 }}>↑</span>
         </div>
