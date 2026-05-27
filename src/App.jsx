@@ -163,7 +163,7 @@ export default function Addie() {
   const clearTimer = () => { clearTimeout(timerRef.current); setTimer(null); };
   const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
-  // Voice: continuous mode with explicit stop + auto-restart on silence timeout
+  // Voice: continuous mode with auto-restart and rebuild-from-scratch transcript
   const finalTextRef = useRef("");
   const userStoppedRef = useRef(false);
   const startListening = useCallback(() => {
@@ -176,24 +176,30 @@ export default function Addie() {
       r.continuous = true; r.interimResults = true; r.lang = "en-US";
       r.onstart = () => { setListening(true); };
       r.onresult = e => {
-        let newFinal = "";
+        // Rebuild from scratch each event — don't accumulate across events.
+        // Walk the full current results list and split into final vs interim.
+        let sessionFinal = "";
         let interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
+        for (let i = 0; i < e.results.length; i++) {
           const txt = e.results[i][0].transcript;
-          if (e.results[i].isFinal) newFinal += txt + " ";
+          if (e.results[i].isFinal) sessionFinal += txt + " ";
           else interim += txt;
         }
-        if (newFinal) finalTextRef.current += newFinal;
-        const combined = (finalTextRef.current + interim).trim();
+        // Combine with anything finalized from PRIOR recognizer instances (auto-restart),
+        // but NOT from prior events in this same instance.
+        const combined = (finalTextRef.current + sessionFinal + interim).replace(/\s+/g, " ").trim();
         setTranscript(combined);
         setInput(combined);
         if (taRef.current) {
           taRef.current.style.height = "auto";
           taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + "px";
         }
+        // When this instance ends, sessionFinal becomes part of the carried-over base.
+        r._lastSessionFinal = sessionFinal;
       };
       r.onend = () => {
-        // If the user didn't tap Done, the browser auto-stopped on silence — restart it.
+        // Carry forward what this instance finalized, before starting a new one.
+        if (r._lastSessionFinal) finalTextRef.current += r._lastSessionFinal;
         if (!userStoppedRef.current) {
           try { startInstance(); } catch { setListening(false); }
         } else {
@@ -469,13 +475,6 @@ export default function Addie() {
       )}
 
       {toast && <div style={{ backgroundColor:"#F0FDF4", padding:"10px 20px", fontSize:13.5, color:"#166534", textAlign:"center", fontWeight:500, flexShrink:0 }}>{toast}</div>}
-      {listening && (
-        <div style={{ backgroundColor:C.blueBg, padding:"10px 20px", display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
-          <span style={{ width:8, height:8, borderRadius:"50%", backgroundColor:C.blue, display:"inline-block", animation:"pulse 1s infinite" }} />
-          <span style={{ fontSize:13.5, color:C.blueText, flex:1, fontStyle:transcript?"normal":"italic" }}>{transcript||"Listening… tap Done when finished"}</span>
-          <span onClick={stopListening} role="button" style={{ fontSize:12, color:"#fff", backgroundColor:C.blue, borderRadius:8, padding:"6px 14px", cursor:"pointer", fontWeight:700 }}>Done</span>
-        </div>
-      )}
 
       {/* Body */}
       <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
@@ -660,12 +659,8 @@ export default function Addie() {
       {/* Chat input */}
       {tab==="chat" && (
         <div style={{ padding:"12px 16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
-          {hasSpeech && (
-            <span onClick={listening?stopListening:startListening} role="button"
-              style={{ width:42, height:42, borderRadius:"50%", border:`1.5px solid ${listening?"#FECACA":C.border}`, backgroundColor:listening?C.dangerBg:C.bg2, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18 }}>{listening?"🔴":"🎙️"}</span>
-          )}
           <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
-            placeholder={listening?"Speak naturally — tap Done when finished":"Message Addie…"} rows={1}
+            placeholder="Message Addie… (tap 🎤 on your keyboard to dictate)" rows={1}
             style={{ flex:1, resize:"none", fontSize:14, padding:"11px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
