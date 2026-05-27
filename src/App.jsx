@@ -64,7 +64,7 @@ Today has ${today.length}/${MAX_TODAY} slots. ${today.length>=MAX_TODAY?"Today i
 
 When the user mentions completing something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge.
 
-A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). Optional, never prescriptive.
+A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). When the user asks you to start a timer ("set a 15 minute timer", "start a timer for the report"), DON'T just say you started it — include a type:timer suggestion in the SUGGESTIONS block. Only the app can actually start it.
 
 CALENDAR HANDOFF: When a specific date+time emerges that the user should remember ("appointment Tuesday at 3pm", "call Mom Friday morning at 10"), include a type:calendar suggestion so they can tap to add it to their phone calendar. Don't do this for vague stuff like "later today" — only concrete date+time.
 
@@ -81,8 +81,9 @@ SUGGESTIONS:
 - type:nextstep | id:TASK_ID | "next step text"
 - type:complete | id:TASK_ID
 - type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
+- type:timer | minutes:15 | label:"what the timer is for"
 
-Rules: type:replace = swap a vague task for a concrete first step. type:nextstep = attach a follow-up. type:complete = user said they finished it. type:calendar = user mentioned a specific date+time worth saving (YYYY-MM-DDTHH:MM, 24-hour). Concrete tasks only. Food/consumables → grocery (include store: when mentioned). Single purchases → task. Max 3 suggestions per message. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
+Rules: type:replace = swap a vague task for a concrete first step. type:nextstep = attach a follow-up. type:complete = user said they finished it. type:calendar = user mentioned a specific date+time worth saving (YYYY-MM-DDTHH:MM, 24-hour). type:timer = user asked you to start a timer; pick a reasonable duration if they didn't specify and use a clear label. Concrete tasks only. Food/consumables → grocery (include store: when mentioned). Single purchases → task. Max 3 suggestions per message. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
@@ -162,35 +163,62 @@ export default function Addie() {
   const clearTimer = () => { clearTimeout(timerRef.current); setTimer(null); };
   const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
-  // Voice: continuous mode with explicit stop
+  // Voice: continuous mode with explicit stop + auto-restart on silence timeout
+  const finalTextRef = useRef("");
+  const userStoppedRef = useRef(false);
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
-    const r = new SR();
-    r.continuous = true; r.interimResults = true; r.lang = "en-US";
-    let finalText = "";
-    r.onstart = () => { setListening(true); setTranscript(""); finalText = ""; };
-    r.onresult = e => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const transcript = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += transcript + " ";
-        else interim += transcript;
-      }
-      const combined = (finalText + interim).trim();
-      setTranscript(combined);
-      setInput(combined);
-      // grow textarea as transcript grows
-      if (taRef.current) {
-        taRef.current.style.height = "auto";
-        taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + "px";
-      }
+    finalTextRef.current = "";
+    userStoppedRef.current = false;
+    const startInstance = () => {
+      const r = new SR();
+      r.continuous = true; r.interimResults = true; r.lang = "en-US";
+      r.onstart = () => { setListening(true); };
+      r.onresult = e => {
+        let newFinal = "";
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const txt = e.results[i][0].transcript;
+          if (e.results[i].isFinal) newFinal += txt + " ";
+          else interim += txt;
+        }
+        if (newFinal) finalTextRef.current += newFinal;
+        const combined = (finalTextRef.current + interim).trim();
+        setTranscript(combined);
+        setInput(combined);
+        if (taRef.current) {
+          taRef.current.style.height = "auto";
+          taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + "px";
+        }
+      };
+      r.onend = () => {
+        // If the user didn't tap Done, the browser auto-stopped on silence — restart it.
+        if (!userStoppedRef.current) {
+          try { startInstance(); } catch { setListening(false); }
+        } else {
+          setListening(false);
+          setTranscript("");
+        }
+      };
+      r.onerror = (ev) => {
+        if (ev.error === "no-speech" || ev.error === "aborted") {
+          // benign — onend will handle restart
+        } else {
+          userStoppedRef.current = true;
+          setListening(false);
+        }
+      };
+      recRef.current = r;
+      r.start();
     };
-    r.onend = () => { setListening(false); setTranscript(""); };
-    r.onerror = () => { setListening(false); setTranscript(""); };
-    recRef.current = r; r.start();
+    startInstance();
   }, []);
-  const stopListening = () => { recRef.current?.stop(); setListening(false); };
+  const stopListening = () => {
+    userStoppedRef.current = true;
+    recRef.current?.stop();
+    setListening(false);
+  };
 
   // Calendar: build a tap-to-add link (Google Calendar webcal works across phone OSes)
   const calendarLink = (title, whenIso, minutes) => {
@@ -216,6 +244,8 @@ export default function Addie() {
     const block = text.match(/SUGGESTIONS:\n([\s\S]*?)(?:\n\n|$)/);
     if (!block) return { clean: text, suggestions: [] };
     const suggestions = block[1].trim().split("\n").map((l, i) => {
+      const tim = l.match(/- type:timer \| minutes:(\d+)(?: \| label:"([^"]*)")?/);
+      if (tim) return { id: "s"+Date.now()+i, type: "timer", minutes: parseInt(tim[1]), label: tim[2] || "" };
       const cal = l.match(/- type:calendar \| "(.+)" \| when:"([^"]+)"(?: \| minutes:(\d+))?/);
       if (cal) return { id: "s"+Date.now()+i, type: "calendar", title: cal[1], when: cal[2], minutes: cal[3] ? parseInt(cal[3]) : 60 };
       const comp = l.match(/- type:complete \| id:(\S+)/);
@@ -266,6 +296,9 @@ export default function Addie() {
       setTasks(p => p.map(t => t.id===s.targetId ? {...t, done:true} : t));
       showToast(`✓  ${t?.text || "Done"}`);
     }
+    else if (s.type === "timer") {
+      startTimer(s.minutes, s.label);
+    }
     else if (s.type === "calendar") {
       const link = calendarLink(s.title, s.when, s.minutes);
       if (link) window.open(link, "_blank");
@@ -296,6 +329,15 @@ export default function Addie() {
   const deleteGrocery = (id) => setGrocery(p => p.filter(g => g.id!==id));
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
   const resetAll = () => { setTasks([]); setGrocery([]); setMessages([]); setStarted(false); setPending([]); try{window.localStorage.removeItem(STORAGE_KEY);}catch{} showToast("Everything cleared"); };
+
+  const editInputRef = useRef(null);
+  const editCaretRef = useRef(null);
+  useEffect(() => {
+    if (editingId && editInputRef.current && editCaretRef.current !== null) {
+      const pos = editCaretRef.current;
+      editInputRef.current.setSelectionRange(pos, pos);
+    }
+  }, [editText, editingId]);
 
   const handleKey = (e) => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } };
   const fmtText = (t) => t.split(/(\*\*[^*]+\*\*)/).map((p,i) => p.startsWith("**")&&p.endsWith("**") ? <strong key={i} style={{fontWeight:600}}>{p.slice(2,-2)}</strong> : p);
@@ -332,8 +374,8 @@ export default function Addie() {
           <div style={{ flex:1, minWidth:0 }}>
             {editing ? (
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                <input autoFocus value={editText} onChange={e=>setEditText(e.target.value)}
-                  onFocus={e => e.target.setSelectionRange(e.target.value.length, e.target.value.length)}
+                <input ref={editInputRef} autoFocus value={editText}
+                  onChange={e => { editCaretRef.current = e.target.selectionStart; setEditText(e.target.value); }}
                   onKeyDown={e => { if(e.key==="Enter")saveEdit(task.id); if(e.key==="Escape")cancelEdit(); }}
                   style={{ ...fieldStyle, height:42, minHeight:42 }} />
                 <div style={{ display:"flex", gap:8 }}>
@@ -477,14 +519,18 @@ export default function Addie() {
                               : s.type==="nextstep" ? {bg:"#EDE9FE",text:"#5B21B6",label:"Next step"}
                               : s.type==="complete" ? {bg:C.greenBg,text:C.greenText,label:"Mark done"}
                               : s.type==="calendar" ? {bg:"#FEF3C7",text:"#92400E",label:"Calendar"}
+                              : s.type==="timer" ? {bg:C.blueBg,text:C.blueText,label:"Timer"}
                               : BUCKET_STYLE[s.bucket];
                     const taskRef = s.type==="complete" ? tasks.find(t=>t.id===s.targetId)?.text : null;
-                    const display = s.type==="calendar" ? `${s.title} · ${fmtCalDate(s.when)}` : (taskRef || s.text);
+                    const display = s.type==="calendar" ? `${s.title} · ${fmtCalDate(s.when)}`
+                                    : s.type==="timer" ? `${s.minutes} min${s.label?` · ${s.label}`:""}`
+                                    : (taskRef || s.text);
+                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="timer" ? "Start" : "Confirm";
                     return (
                       <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, backgroundColor:C.bg, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"10px 14px" }}>
                         <Badge bg={bs.bg} color={bs.text}>{bs.label}</Badge>
                         <span style={{ flex:1, fontSize:13.5, color:C.text }}>{display}</span>
-                        <span onClick={() => confirm(s)} role="button" style={{ fontSize:13, padding:"6px 14px", borderRadius:8, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, color:C.blueText, cursor:"pointer", fontWeight:600 }}>{s.type==="calendar"?"Add to calendar":"Confirm"}</span>
+                        <span onClick={() => confirm(s)} role="button" style={{ fontSize:13, padding:"6px 14px", borderRadius:8, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, color:C.blueText, cursor:"pointer", fontWeight:600 }}>{ctaLabel}</span>
                         <span onClick={() => dismiss(s.id)} role="button" style={{ fontSize:13, padding:"6px 12px", borderRadius:8, border:`1.5px solid ${C.borderLt}`, color:C.text2, cursor:"pointer" }}>Skip</span>
                       </div>
                     );
