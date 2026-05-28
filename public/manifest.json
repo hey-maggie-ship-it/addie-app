@@ -1,0 +1,15 @@
+{
+  "name": "Addie — ADHD Daily Assistant",
+  "short_name": "Addie",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0B84FE",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f9e0.png",
+      "sizes": "72x72",
+      "type": "image/png"
+    }
+  ]
+}
