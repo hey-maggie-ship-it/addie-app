@@ -112,10 +112,13 @@ export default function Addie() {
   const [transcript, setTranscript] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [timer, setTimer] = useState(null);
+  const [pastExpanded, setPastExpanded] = useState(false);
+  const [doneExpanded, setDoneExpanded] = useState(false);
   const bottomRef = useRef(null);
   const recRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
+  const bodyScrollRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -126,9 +129,9 @@ export default function Addie() {
         if (s.grocery) setGrocery(s.grocery);
         if (s.messages) { setMessages(s.messages); }
         if (s.lastActivity) setLastActivity(s.lastActivity);
-        // Idle reset: if it's been over IDLE_RESET_MS since last activity, show starters again
-        const idle = s.lastActivity && (Date.now() - s.lastActivity > IDLE_RESET_MS);
-        if (s.messages?.length && !idle) setStarted(true);
+        // Always open fresh — past is collapsed until user expands it.
+        setStarted(false);
+        setPastExpanded(false);
       }
     } catch {}
     setHydrated(true);
@@ -139,7 +142,17 @@ export default function Addie() {
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity })); } catch {}
   }, [tasks, grocery, messages, lastActivity, hydrated]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading, pending]);
+  useEffect(() => {
+    // Scroll body to top on tab change (Board, Timer, Grocery should open from top, not bottom)
+    if (bodyScrollRef.current && tab !== "chat") {
+      bodyScrollRef.current.scrollTop = 0;
+    }
+  }, [tab]);
+
+  // Only auto-scroll chat to bottom when user has actively started a session, not on app open
+  useEffect(() => {
+    if (started && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading, pending, started]);
 
   useEffect(() => {
     if (timer && timer.running && timer.remaining > 0) {
@@ -153,6 +166,51 @@ export default function Addie() {
   }, [timer]);
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 4000); };
+
+  const wakeLockRef = useRef(null);
+  const audioCtxRef = useRef(null);
+
+  const requestWakeLock = async () => {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request("screen");
+      }
+    } catch {}
+  };
+  const releaseWakeLock = async () => {
+    try { await wakeLockRef.current?.release(); } catch {}
+    wakeLockRef.current = null;
+  };
+  // Re-acquire wake lock if it was released by tab visibility change
+  useEffect(() => {
+    const onVis = async () => {
+      if (document.visibilityState === "visible" && timer && timer.running && !wakeLockRef.current) {
+        await requestWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [timer]);
+
+  const playAlarmSound = () => {
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = audioCtxRef.current;
+      // Three quick beeps — pleasant but unmissable
+      [0, 0.35, 0.7].forEach(delay => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = 880; osc.type = "sine";
+        gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+        gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + delay + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.25);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + 0.3);
+      });
+    } catch {}
+    try { navigator.vibrate?.([200, 100, 200, 100, 400]); } catch {}
+  };
 
   const startTimer = (min, label) => {
     setTimer({ label: label || "", total: min*60, remaining: min*60, running: true, done: false });
@@ -477,16 +535,16 @@ export default function Addie() {
       {toast && <div style={{ backgroundColor:"#F0FDF4", padding:"10px 20px", fontSize:13.5, color:"#166534", textAlign:"center", fontWeight:500, flexShrink:0 }}>{toast}</div>}
 
       {/* Body */}
-      <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
+      <div ref={bodyScrollRef} style={{ flex:1, overflowY:"auto", minHeight:0 }}>
 
         {tab==="chat" && (
           <div style={{ padding:"14px 16px" }}>
-            {showStarters && (
-              <div style={{ marginBottom: messages.length ? 16 : 0 }}>
+            {!started && (
+              <div>
                 <div style={{ textAlign:"center", padding:"4px 0 20px" }}>
                   <div style={{ width:46, height:46, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 10px", fontSize:23 }}>🧠</div>
-                  <h3 style={{ margin:"0 0 4px", fontSize:19, fontWeight:600, color:C.text }}>{messages.length ? "Welcome back" : "Hey, how's it going?"}</h3>
-                  <p style={{ margin:0, fontSize:13, color:C.text3 }}>{messages.length ? "Pick a starting point, or just say what's up." : "Pick a starting point, or just tell me what's up."}</p>
+                  <h3 style={{ margin:"0 0 4px", fontSize:19, fontWeight:600, color:C.text }}>Hey, how's it going?</h3>
+                  <p style={{ margin:0, fontSize:13, color:C.text3 }}>Pick a starting point, or just tell me what's up.</p>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                   {STARTERS.map(s => (
@@ -496,9 +554,16 @@ export default function Addie() {
                     </div>
                   ))}
                 </div>
+                {messages.length > 0 && !pastExpanded && (
+                  <div onClick={() => setPastExpanded(true)} role="button"
+                    style={{ marginTop:18, padding:"12px 14px", backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
+                    <span style={{ fontSize:13, color:C.text2 }}>↑ Continue where you left off · {messages.length} messages</span>
+                    <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>Show</span>
+                  </div>
+                )}
               </div>
             )}
-            {messages.map((m, i) => {
+            {(pastExpanded || started) && messages.map((m, i) => {
               const u = m.role==="user";
               const grp = messages[i-1] && messages[i-1].role===m.role;
               return (
@@ -548,12 +613,16 @@ export default function Addie() {
             <BucketSection label="Parked" items={parkedTasks} bucket="parked" />
             {doneTasks.length>0 && (
               <div style={{ marginBottom:24 }}>
-                <p style={{ fontSize:12, color:C.text3, margin:"0 0 10px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Done</p>
-                {doneTasks.map(t => (
+                <div onClick={() => setDoneExpanded(!doneExpanded)} role="button"
+                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 0", cursor:"pointer" }}>
+                  <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Done · {doneTasks.length}</p>
+                  <span style={{ fontSize:12, color:C.text2, fontWeight:600 }}>{doneExpanded ? "Hide" : "Show"}</span>
+                </div>
+                {doneExpanded && doneTasks.map(t => (
                   <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.borderLt}` }}>
                     <div style={{ width:22, height:22, borderRadius:"50%", backgroundColor:C.greenBg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:12, color:C.greenText, fontWeight:700 }}>✓</div>
                     <span style={{ flex:1, fontSize:13.5, color:C.text3, textDecoration:"line-through" }}>{t.text}</span>
-                    <span onClick={() => deleteTask(t.id)} role="button" style={{ cursor:"pointer", color:C.text3, fontSize:15, padding:4 }}>✕</span>
+                    <span onClick={(e) => { e.stopPropagation(); deleteTask(t.id); }} role="button" style={{ cursor:"pointer", color:C.text3, fontSize:15, padding:4 }}>✕</span>
                   </div>
                 ))}
               </div>
@@ -606,6 +675,11 @@ export default function Addie() {
                   )}
                   <span onClick={clearTimer} role="button" style={{ fontSize:14, fontWeight:600, color:C.text2, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"10px 24px", cursor:"pointer" }}>{timer.done?"Done":"Stop"}</span>
                 </div>
+                {!timer.done && (
+                  <p style={{ margin:"22px 0 0", fontSize:12, color:C.text3, lineHeight:1.5, maxWidth:320, marginLeft:"auto", marginRight:"auto" }}>
+                    Screen stays on while the timer runs. Walking away? <a href={`https://www.google.com/search?q=set+timer+${Math.ceil(timer.remaining/60)}+minutes`} target="_blank" rel="noreferrer" style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>Set a phone alarm</a> as backup.
+                  </p>
+                )}
               </div>
             )}
           </div>
