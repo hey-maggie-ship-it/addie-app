@@ -1,6 +1,5 @@
 // ──────────────────────────────────────────────────────────
 // ADDIE — ADHD Daily Assistant · Deployable build v2
-// Week-1 field-note revisions applied.
 // Set VITE_ANTHROPIC_KEY in your Vercel environment variables.
 // ──────────────────────────────────────────────────────────
 
@@ -8,7 +7,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_KEY || "";
 const STORAGE_KEY = "addie-app-state-v1";
-const IDLE_RESET_MS = 60 * 60 * 1000; // 1 hour idle → re-show starters
+const IDLE_RESET_MS = 60 * 60 * 1000;
 
 const STARTERS = [
   { icon: "🌅", label: "Morning check-in", prompt: "Morning check-in" },
@@ -34,6 +33,7 @@ const C = {
   blue: "#0B84FE", blueBg: "#EFF6FF", blueText: "#1D4ED8", blueBorder: "#BFDBFE",
   green: "#059669", greenBg: "#D1FAE5", greenText: "#065F46",
   danger: "#DC2626", dangerBg: "#FEF2F2",
+  indigo: "#4F46E5", indigoBg: "#EEF2FF", indigoLight: "#6366F1",
 };
 
 function buildSystemPrompt(tasks, grocery) {
@@ -58,7 +58,7 @@ This week: ${week.length ? week.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [
 Parked: ${parked.length ? parked.map(t=>`"${t.text}" [id:${t.id}]`).join(", ") : "empty"}
 Done today: ${done.length ? done.map(t=>`"${t.text}"`).join(", ") : "none"}
 
-TASKS WITH PENDING NEXT STEPS (mention naturally during check-ins/wind-downs, once, never push):
+TASKS WITH PENDING NEXT STEPS:
 ${withNext.length ? withNext.map(t=>`- "${t.text}" → next: "${t.nextStep}" [id:${t.id}]`).join("\n") : "none"}
 
 GROCERY: ${gItems.length ? gItems.map(g=>`"${g.text}"${g.store?` (from ${g.store})`:""}`).join(", ") : "Empty"}
@@ -66,11 +66,11 @@ Today has ${today.length}/${MAX_TODAY} slots. ${today.length>=MAX_TODAY?"Today i
 
 When the user mentions completing something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge.
 
-A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). When the user asks you to start a timer ("set a 15 minute timer", "start a timer for the report"), DON'T just say you started it — include a type:timer suggestion in the SUGGESTIONS block. Only the app can actually start it.
+A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). When the user asks you to start a timer, include a type:timer suggestion in the SUGGESTIONS block.
 
-CALENDAR HANDOFF: When a specific date+time emerges that the user should remember ("appointment Tuesday at 3pm", "call Mom Friday morning at 10"), include a type:calendar suggestion so they can tap to add it to their phone calendar. Don't do this for vague stuff like "later today" — only concrete date+time.
+CALENDAR HANDOFF: When a specific date+time emerges, include a type:calendar suggestion. Only concrete date+time — not vague stuff like "later today".
 
-SUGGESTION FORMAT (append exactly when something concrete emerges, else omit entirely):
+SUGGESTION FORMAT:
 
 SUGGESTIONS:
 - type:task | bucket:today | "task text"
@@ -85,7 +85,7 @@ SUGGESTIONS:
 - type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
 - type:timer | minutes:15 | label:"what the timer is for"
 
-Rules: type:replace = swap a vague task for a concrete first step. type:nextstep = attach a follow-up. type:complete = user said they finished it. type:calendar = user mentioned a specific date+time worth saving (YYYY-MM-DDTHH:MM, 24-hour). type:timer = user asked you to start a timer; pick a reasonable duration if they didn't specify and use a clear label. Concrete tasks only. Food/consumables → grocery (include store: when mentioned). Single purchases → task. Max 3 suggestions per message. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
+Rules: Max 3 suggestions per message. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
@@ -110,20 +110,20 @@ export default function Addie() {
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState("");
   const [menuId, setMenuId] = useState(null);
-  const [listening, setListening] = useState(false);
-  const [transcript, setTranscript] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [timer, setTimer] = useState(null);
   const [pastExpanded, setPastExpanded] = useState(false);
   const [doneExpanded, setDoneExpanded] = useState(false);
-  const [timerAlert, setTimerAlert] = useState(false); // full-screen overlay
+  const [timerAlert, setTimerAlert] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
   const bottomRef = useRef(null);
-  const recRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
   const bodyScrollRef = useRef(null);
+  const chatScrollRef = useRef(null);
   const wakeLockRef = useRef(null);
+  // Store the absolute end time so backgrounding doesn't affect accuracy
+  const timerEndTimeRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -132,16 +132,13 @@ export default function Addie() {
         const s = JSON.parse(raw);
         if (s.tasks) setTasks(s.tasks);
         if (s.grocery) setGrocery(s.grocery);
-        if (s.messages) { setMessages(s.messages); }
+        if (s.messages) setMessages(s.messages);
         if (s.lastActivity) setLastActivity(s.lastActivity);
         setStarted(false);
         setPastExpanded(false);
       }
     } catch {}
-    // Check existing notification permission
-    if ("Notification" in window) {
-      setNotifPermission(Notification.permission);
-    }
+    if ("Notification" in window) setNotifPermission(Notification.permission);
     setHydrated(true);
   }, []);
 
@@ -150,36 +147,63 @@ export default function Addie() {
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity })); } catch {}
   }, [tasks, grocery, messages, lastActivity, hydrated]);
 
-  // Keep wake lock alive while timer exists, release only when cleared
+  // ── Fix 1: Smart chat scroll — bottom if mid-convo, top if idle ──
   useEffect(() => {
-    const onVis = async () => {
-      if (document.visibilityState === "visible" && timer && !wakeLockRef.current) {
-        await requestWakeLock();
+    if (tab === "chat") {
+      if (started && messages.length > 0) {
+        // Mid-convo: scroll to bottom
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+      } else {
+        // Idle/starter: scroll to top
+        setTimeout(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = 0; }, 50);
       }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [timer]);
-
-  useEffect(() => {
-    if (bodyScrollRef.current && tab !== "chat") {
+    }
+    if (tab !== "chat" && bodyScrollRef.current) {
       bodyScrollRef.current.scrollTop = 0;
     }
   }, [tab]);
 
+  // Scroll to bottom when new messages arrive during active convo
   useEffect(() => {
-    if (started && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading, pending, started]);
+    if (started && messages.length > 0 && tab === "chat") {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, loading, pending]);
 
+  // ── Fix 3: Background-safe timer using end timestamp ──
   useEffect(() => {
-    if (timer && timer.running && timer.remaining > 0) {
-      timerRef.current = setTimeout(() => setTimer(t => t ? { ...t, remaining: t.remaining - 1 } : null), 1000);
+    if (timer && timer.running) {
+      timerRef.current = setTimeout(() => {
+        const remaining = Math.max(0, Math.round((timerEndTimeRef.current - Date.now()) / 1000));
+        if (remaining <= 0) {
+          setTimer(t => t ? { ...t, remaining: 0, running: false, done: true } : null);
+          triggerTimerAlert();
+        } else {
+          setTimer(t => t ? { ...t, remaining } : null);
+        }
+      }, 500);
       return () => clearTimeout(timerRef.current);
     }
-    if (timer && timer.running && timer.remaining === 0) {
-      setTimer(t => t ? { ...t, running: false, done: true } : null);
-      triggerTimerAlert();
-    }
+  }, [timer]);
+
+  // Re-sync timer when app comes back to foreground
+  useEffect(() => {
+    const onVis = async () => {
+      if (document.visibilityState === "visible") {
+        if (timer && timer.running && timerEndTimeRef.current) {
+          const remaining = Math.max(0, Math.round((timerEndTimeRef.current - Date.now()) / 1000));
+          if (remaining <= 0) {
+            setTimer(t => t ? { ...t, remaining: 0, running: false, done: true } : null);
+            triggerTimerAlert();
+          } else {
+            setTimer(t => t ? { ...t, remaining } : null);
+          }
+        }
+        if (timer && !wakeLockRef.current) await requestWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [timer]);
 
   const requestWakeLock = async () => {
@@ -190,7 +214,6 @@ export default function Addie() {
     wakeLockRef.current = null;
   };
 
-  // Request notification permission on first timer start
   const requestNotifPermission = async () => {
     if (!("Notification" in window)) return;
     if (Notification.permission === "default") {
@@ -199,28 +222,23 @@ export default function Addie() {
     }
   };
 
-  // Fire the actual system notification
   const fireNotification = (label) => {
     try {
       if ("Notification" in window && Notification.permission === "granted") {
         new Notification("⏰ Time's up!", {
           body: label || "Your focus timer has ended.",
           icon: "/icon-192.png",
-          badge: "/icon-192.png",
-          requireInteraction: true, // stays until dismissed on Android
+          requireInteraction: true,
           vibrate: [300, 100, 300, 100, 500],
         });
       }
     } catch {}
-    // Vibrate via navigator as extra fallback
     try { navigator.vibrate?.([300, 100, 300, 100, 500, 100, 500]); } catch {}
   };
 
   const triggerTimerAlert = () => {
     setTimerAlert(true);
-    // Fire system notification (plays device sound, works backgrounded)
-    const t = timer;
-    fireNotification(t?.label || "");
+    fireNotification(timer?.label || "");
   };
 
   const dismissTimerAlert = () => {
@@ -233,70 +251,24 @@ export default function Addie() {
   const startTimer = async (min, label) => {
     await requestNotifPermission();
     await requestWakeLock();
+    timerEndTimeRef.current = Date.now() + min * 60 * 1000;
     setTimer({ label: label || "", total: min*60, remaining: min*60, running: true, done: false });
     setMenuId(null); setTab("timer");
   };
-  const pauseTimer = () => setTimer(t => t ? { ...t, running: false } : null);
-  const resumeTimer = () => setTimer(t => t ? { ...t, running: true, done: false } : null);
-  const clearTimer = () => { clearTimeout(timerRef.current); setTimer(null); releaseWakeLock(); setTimerAlert(false); };
-  const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
-
-  // Voice: continuous mode with auto-restart
-  const finalTextRef = useRef("");
-  const userStoppedRef = useRef(false);
-  const startListening = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
-    finalTextRef.current = "";
-    userStoppedRef.current = false;
-    const startInstance = () => {
-      const r = new SR();
-      r.continuous = true; r.interimResults = true; r.lang = "en-US";
-      r.onstart = () => { setListening(true); };
-      r.onresult = e => {
-        let sessionFinal = "";
-        let interim = "";
-        for (let i = 0; i < e.results.length; i++) {
-          const txt = e.results[i][0].transcript;
-          if (e.results[i].isFinal) sessionFinal += txt + " ";
-          else interim += txt;
-        }
-        const combined = (finalTextRef.current + sessionFinal + interim).replace(/\s+/g, " ").trim();
-        setTranscript(combined);
-        setInput(combined);
-        if (taRef.current) {
-          taRef.current.style.height = "auto";
-          taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + "px";
-        }
-        r._lastSessionFinal = sessionFinal;
-      };
-      r.onend = () => {
-        if (r._lastSessionFinal) finalTextRef.current += r._lastSessionFinal;
-        if (!userStoppedRef.current) {
-          try { startInstance(); } catch { setListening(false); }
-        } else {
-          setListening(false);
-          setTranscript("");
-        }
-      };
-      r.onerror = (ev) => {
-        if (ev.error === "no-speech" || ev.error === "aborted") {
-          // benign
-        } else {
-          userStoppedRef.current = true;
-          setListening(false);
-        }
-      };
-      recRef.current = r;
-      r.start();
-    };
-    startInstance();
-  }, []);
-  const stopListening = () => {
-    userStoppedRef.current = true;
-    recRef.current?.stop();
-    setListening(false);
+  const pauseTimer = () => {
+    clearTimeout(timerRef.current);
+    setTimer(t => t ? { ...t, running: false } : null);
   };
+  const resumeTimer = () => {
+    // Recalculate end time based on current remaining
+    setTimer(t => {
+      if (!t) return null;
+      timerEndTimeRef.current = Date.now() + t.remaining * 1000;
+      return { ...t, running: true, done: false };
+    });
+  };
+  const clearTimer = () => { clearTimeout(timerRef.current); timerEndTimeRef.current = null; setTimer(null); releaseWakeLock(); setTimerAlert(false); };
+  const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
   const calendarLink = (title, whenIso, minutes) => {
     try {
@@ -348,7 +320,7 @@ export default function Addie() {
     if (!userText.trim() || loading) return;
     const next = [...messages, { role: "user", content: userText, id: "u"+Date.now() }];
     setMessages(next); setInput(""); setLoading(true); setStarted(true); setPending([]); setLastActivity(Date.now());
-    if (taRef.current) taRef.current.style.height = "auto";
+    if (taRef.current) { taRef.current.style.height = "auto"; }
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -414,7 +386,11 @@ export default function Addie() {
     }
   }, [editText, editingId]);
 
-  const handleKey = (e) => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(input); } };
+  // ── Fix 2: Enter = line break. Send is button only. ──
+  const handleKey = (e) => {
+    // No special handling — let Enter be a normal line break
+  };
+
   const fmtText = (t) => t.split(/(\*\*[^*]+\*\*)/).map((p,i) => p.startsWith("**")&&p.endsWith("**") ? <strong key={i} style={{fontWeight:600}}>{p.slice(2,-2)}</strong> : p);
   const renderContent = (t) => t.split("\n").filter(Boolean).map((line,i) => <p key={i} style={{margin:"0 0 5px",lineHeight:1.5}}>{fmtText(line)}</p>);
 
@@ -425,11 +401,10 @@ export default function Addie() {
   const activeTasks = tasks.filter(t => !t.done).length;
   const unchecked   = grocery.filter(g => !g.checked);
   const checked     = grocery.filter(g => g.checked);
-  const hasSpeech   = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   const timerPct    = timer && timer.total>0 ? (timer.remaining/timer.total)*100 : 0;
   const idleNow     = Date.now() - lastActivity > IDLE_RESET_MS;
-  const showStarters = !started || (messages.length === 0) || idleNow;
 
+  // ── Fix 5: More vertical padding in chat input ──
   const fieldStyle = { display:"block", width:"100%", height:46, minHeight:46, fontSize:14, padding:"0 14px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, fontFamily:"inherit", outline:"none", boxSizing:"border-box", appearance:"none", WebkitAppearance:"none" };
   const btnStyle = { display:"inline-flex", alignItems:"center", justifyContent:"center", height:46, padding:"0 22px", fontSize:14, borderRadius:10, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, color:C.blueText, cursor:"pointer", fontWeight:600, flexShrink:0, boxSizing:"border-box" };
 
@@ -519,24 +494,18 @@ export default function Addie() {
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg, position:"relative" }} onClick={() => menuId && setMenuId(null)}>
 
-      {/* ── TIMER ALERT OVERLAY ── */}
+      {/* ── Fix 4: Indigo timer alert overlay instead of red ── */}
       {timerAlert && (
         <div style={{
           position:"fixed", inset:0, zIndex:100,
           display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-          animation:"alertFlash 0.6s ease-in-out infinite alternate",
-          backgroundColor:"#FF3B30",
+          animation:"alertPulse 1s ease-in-out infinite alternate",
+          backgroundColor: C.indigo,
         }}>
-          <div style={{ fontSize:72, marginBottom:16, animation:"bounce 0.5s ease-in-out infinite alternate" }}>⏰</div>
+          <div style={{ fontSize:72, marginBottom:16, animation:"bounce 0.6s ease-in-out infinite alternate" }}>⏰</div>
           <h1 style={{ color:"#fff", fontSize:36, fontWeight:800, margin:"0 0 10px", textAlign:"center" }}>Time's up!</h1>
           {timer?.label && <p style={{ color:"rgba(255,255,255,0.85)", fontSize:18, margin:"0 0 40px", textAlign:"center", maxWidth:280 }}>{timer.label}</p>}
-          <button
-            onClick={dismissTimerAlert}
-            style={{
-              fontSize:18, fontWeight:700, color:"#FF3B30", backgroundColor:"#fff",
-              border:"none", borderRadius:16, padding:"16px 48px", cursor:"pointer",
-              boxShadow:"0 4px 20px rgba(0,0,0,0.2)"
-            }}>
+          <button onClick={dismissTimerAlert} style={{ fontSize:18, fontWeight:700, color:C.indigo, backgroundColor:"#fff", border:"none", borderRadius:16, padding:"16px 48px", cursor:"pointer", boxShadow:"0 4px 20px rgba(0,0,0,0.2)" }}>
             Done
           </button>
         </div>
@@ -551,20 +520,18 @@ export default function Addie() {
         </div>
         {tab==="chat" && messages.length>0 && (
           <span onClick={() => { setMessages([]); setStarted(false); setPending([]); }} role="button"
-            style={{ fontSize:12, color:C.text2, backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:8, padding:"6px 12px", cursor:"pointer", marginRight:8 }}>New session</span>
+            style={{ fontSize:12, color:C.text2, backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:8, padding:"6px 12px", cursor:"pointer" }}>New session</span>
         )}
       </div>
 
-      {/* Notification permission nudge — shown only if denied */}
       {notifPermission === "denied" && (
         <div style={{ padding:"10px 18px", backgroundColor:"#FEF3C7", borderBottom:`1px solid #FDE68A`, flexShrink:0 }}>
           <p style={{ margin:0, fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>
-            ⚠️ Notifications are blocked — the timer alarm won't sound. To fix: open Chrome Settings → Site settings → Notifications → allow this site.
+            ⚠️ Notifications are blocked — timer alarm won't sound. Fix: Chrome Settings → Site settings → Notifications → allow this site.
           </p>
         </div>
       )}
 
-      {/* Persistent timer indicator */}
       {timer && tab!=="timer" && (
         <div onClick={() => setTab("timer")} role="button"
           style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 18px", backgroundColor:timer.done?C.greenBg:C.blueBg, borderBottom:`1.5px solid ${C.borderLt}`, cursor:"pointer", flexShrink:0 }}>
@@ -578,11 +545,11 @@ export default function Addie() {
       {toast && <div style={{ backgroundColor:"#F0FDF4", padding:"10px 20px", fontSize:13.5, color:"#166534", textAlign:"center", fontWeight:500, flexShrink:0 }}>{toast}</div>}
 
       {/* Body */}
-      <div ref={bodyScrollRef} style={{ flex:1, overflowY:"auto", minHeight:0 }}>
+      <div ref={(el) => { bodyScrollRef.current = el; if (tab === "chat") chatScrollRef.current = el; }} style={{ flex:1, overflowY:"auto", minHeight:0 }}>
 
         {tab==="chat" && (
           <div style={{ padding:"14px 16px" }}>
-            {!started && (
+            {(!started || messages.length === 0) && (
               <div>
                 <div style={{ textAlign:"center", padding:"4px 0 20px" }}>
                   <div style={{ width:46, height:46, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 10px", fontSize:23 }}>🧠</div>
@@ -780,15 +747,15 @@ export default function Addie() {
         )}
       </div>
 
-      {/* Chat input */}
+      {/* ── Fix 5: Chat input with more vertical breathing room ── */}
       {tab==="chat" && (
-        <div style={{ padding:"12px 16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
+        <div style={{ padding:"16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
           <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
-            placeholder="Message Addie… (tap 🎤 on your keyboard to dictate)" rows={1}
-            style={{ flex:1, resize:"none", fontSize:14, padding:"11px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
+            placeholder="Message Addie…" rows={2}
+            style={{ flex:1, resize:"none", fontSize:14, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
-            style={{ width:42, height:42, borderRadius:"50%", backgroundColor:input.trim()&&!loading?C.blue:C.bg2, cursor:input.trim()&&!loading?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color:input.trim()&&!loading?"#fff":C.text3, fontWeight:700 }}>↑</span>
+            style={{ width:44, height:44, borderRadius:"50%", backgroundColor:input.trim()&&!loading?C.blue:C.bg2, cursor:input.trim()&&!loading?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color:input.trim()&&!loading?"#fff":C.text3, fontWeight:700, marginBottom:2 }}>↑</span>
         </div>
       )}
 
@@ -815,9 +782,9 @@ export default function Addie() {
       </div>
 
       <style>{`
-        @keyframes alertFlash {
-          0%   { background-color: #FF3B30; }
-          100% { background-color: #FF6961; }
+        @keyframes alertPulse {
+          0%   { background-color: #4F46E5; }
+          100% { background-color: #6366F1; }
         }
         @keyframes bounce {
           0%   { transform: translateY(0px); }
