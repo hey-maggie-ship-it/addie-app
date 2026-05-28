@@ -116,14 +116,14 @@ export default function Addie() {
   const [timer, setTimer] = useState(null);
   const [pastExpanded, setPastExpanded] = useState(false);
   const [doneExpanded, setDoneExpanded] = useState(false);
-  const [soundChoice, setSoundChoice] = useState("chime");
-  const [soundUnlocked, setSoundUnlocked] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [timerAlert, setTimerAlert] = useState(false); // full-screen overlay
+  const [notifPermission, setNotifPermission] = useState("default");
   const bottomRef = useRef(null);
   const recRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
   const bodyScrollRef = useRef(null);
+  const wakeLockRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -134,21 +134,23 @@ export default function Addie() {
         if (s.grocery) setGrocery(s.grocery);
         if (s.messages) { setMessages(s.messages); }
         if (s.lastActivity) setLastActivity(s.lastActivity);
-        if (s.soundChoice) setSoundChoice(s.soundChoice);
-        // Always open fresh — past is collapsed until user expands it.
         setStarted(false);
         setPastExpanded(false);
       }
     } catch {}
+    // Check existing notification permission
+    if ("Notification" in window) {
+      setNotifPermission(Notification.permission);
+    }
     setHydrated(true);
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity, soundChoice })); } catch {}
-  }, [tasks, grocery, messages, lastActivity, soundChoice, hydrated]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity })); } catch {}
+  }, [tasks, grocery, messages, lastActivity, hydrated]);
 
-  // Keep wake lock alive while a timer EXISTS (running or in done state), release only when cleared.
+  // Keep wake lock alive while timer exists, release only when cleared
   useEffect(() => {
     const onVis = async () => {
       if (document.visibilityState === "visible" && timer && !wakeLockRef.current) {
@@ -160,13 +162,11 @@ export default function Addie() {
   }, [timer]);
 
   useEffect(() => {
-    // Scroll body to top on tab change (Board, Timer, Grocery should open from top, not bottom)
     if (bodyScrollRef.current && tab !== "chat") {
       bodyScrollRef.current.scrollTop = 0;
     }
   }, [tab]);
 
-  // Only auto-scroll chat to bottom when user has actively started a session, not on app open
   useEffect(() => {
     if (started && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, pending, started]);
@@ -178,46 +178,9 @@ export default function Addie() {
     }
     if (timer && timer.running && timer.remaining === 0) {
       setTimer(t => t ? { ...t, running: false, done: true } : null);
-      showToast("⏰ Time's up!");
+      triggerTimerAlert();
     }
   }, [timer]);
-
-  const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 4000); };
-
-  const wakeLockRef = useRef(null);
-  const alarmAudioRef = useRef(null);
-  const alarmActiveRef = useRef(false);
-
-  // Generate a tone as a WAV data URI at a given frequency/duration. Built once.
-  const makeTone = (freq, seconds) => {
-    const rate = 8000, n = Math.floor(rate * seconds);
-    const bytes = 44 + n * 2;
-    const buf = new ArrayBuffer(bytes); const dv = new DataView(buf);
-    const ws = (o, s) => { for (let i=0;i<s.length;i++) dv.setUint8(o+i, s.charCodeAt(i)); };
-    ws(0,"RIFF"); dv.setUint32(4, 36+n*2, true); ws(8,"WAVE"); ws(12,"fmt ");
-    dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
-    dv.setUint32(24,rate,true); dv.setUint32(28,rate*2,true); dv.setUint16(32,2,true);
-    dv.setUint16(34,16,true); ws(36,"data"); dv.setUint32(40,n*2,true);
-    for (let i=0;i<n;i++) {
-      const t = i/rate;
-      const env = Math.min(1, t*20) * Math.max(0, 1 - (t/seconds)); // quick attack, decay
-      const v = Math.sin(2*Math.PI*freq*t) * env * 0.5;
-      dv.setInt16(44+i*2, v*32767, true);
-    }
-    let bin=""; const u8=new Uint8Array(buf);
-    for (let i=0;i<u8.length;i++) bin += String.fromCharCode(u8[i]);
-    return "data:audio/wav;base64," + btoa(bin);
-  };
-  const SOUNDS = useRef(null);
-  if (!SOUNDS.current) {
-    SOUNDS.current = {
-      chime: makeTone(880, 0.5),
-      bell:  makeTone(660, 0.7),
-      ping:  makeTone(1320, 0.3),
-      low:   makeTone(440, 0.6),
-    };
-  }
-  const SOUND_LABELS = { chime: "Chime", bell: "Bell", ping: "Ping", low: "Low tone" };
 
   const requestWakeLock = async () => {
     try { if ("wakeLock" in navigator) wakeLockRef.current = await navigator.wakeLock.request("screen"); } catch {}
@@ -227,48 +190,58 @@ export default function Addie() {
     wakeLockRef.current = null;
   };
 
-  // Preview a sound — this full user-initiated playback is what unlocks audio for later autoplay.
-  const previewSound = (key) => {
-    try {
-      const a = alarmAudioRef.current;
-      if (a) {
-        a.src = SOUNDS.current[key];
-        a.loop = false;
-        a.currentTime = 0;
-        a.play().then(() => setSoundUnlocked(true)).catch(() => {});
-      }
-    } catch {}
+  // Request notification permission on first timer start
+  const requestNotifPermission = async () => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      const result = await Notification.requestPermission();
+      setNotifPermission(result);
+    }
   };
 
-  const playAlarmSound = () => {
+  // Fire the actual system notification
+  const fireNotification = (label) => {
     try {
-      const a = alarmAudioRef.current;
-      if (a) {
-        a.src = SOUNDS.current[soundChoice] || SOUNDS.current.chime;
-        a.loop = true;
-        a.currentTime = 0;
-        a.play().catch(() => {});
-        alarmActiveRef.current = true;
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("⏰ Time's up!", {
+          body: label || "Your focus timer has ended.",
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          requireInteraction: true, // stays until dismissed on Android
+          vibrate: [300, 100, 300, 100, 500],
+        });
       }
     } catch {}
-    try { navigator.vibrate?.([300, 120, 300, 120, 500, 120, 500]); } catch {}
-  };
-  const stopAlarmSound = () => {
-    try { const a = alarmAudioRef.current; if (a) { a.pause(); a.loop = false; a.currentTime = 0; } } catch {}
-    alarmActiveRef.current = false;
-    try { navigator.vibrate?.(0); } catch {}
+    // Vibrate via navigator as extra fallback
+    try { navigator.vibrate?.([300, 100, 300, 100, 500, 100, 500]); } catch {}
   };
 
-  const startTimer = (min, label) => {
+  const triggerTimerAlert = () => {
+    setTimerAlert(true);
+    // Fire system notification (plays device sound, works backgrounded)
+    const t = timer;
+    fireNotification(t?.label || "");
+  };
+
+  const dismissTimerAlert = () => {
+    setTimerAlert(false);
+    clearTimer();
+  };
+
+  const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 4000); };
+
+  const startTimer = async (min, label) => {
+    await requestNotifPermission();
+    await requestWakeLock();
     setTimer({ label: label || "", total: min*60, remaining: min*60, running: true, done: false });
     setMenuId(null); setTab("timer");
   };
   const pauseTimer = () => setTimer(t => t ? { ...t, running: false } : null);
   const resumeTimer = () => setTimer(t => t ? { ...t, running: true, done: false } : null);
-  const clearTimer = () => { clearTimeout(timerRef.current); setTimer(null); };
+  const clearTimer = () => { clearTimeout(timerRef.current); setTimer(null); releaseWakeLock(); setTimerAlert(false); };
   const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
-  // Voice: continuous mode with auto-restart and rebuild-from-scratch transcript
+  // Voice: continuous mode with auto-restart
   const finalTextRef = useRef("");
   const userStoppedRef = useRef(false);
   const startListening = useCallback(() => {
@@ -281,8 +254,6 @@ export default function Addie() {
       r.continuous = true; r.interimResults = true; r.lang = "en-US";
       r.onstart = () => { setListening(true); };
       r.onresult = e => {
-        // Rebuild from scratch each event — don't accumulate across events.
-        // Walk the full current results list and split into final vs interim.
         let sessionFinal = "";
         let interim = "";
         for (let i = 0; i < e.results.length; i++) {
@@ -290,8 +261,6 @@ export default function Addie() {
           if (e.results[i].isFinal) sessionFinal += txt + " ";
           else interim += txt;
         }
-        // Combine with anything finalized from PRIOR recognizer instances (auto-restart),
-        // but NOT from prior events in this same instance.
         const combined = (finalTextRef.current + sessionFinal + interim).replace(/\s+/g, " ").trim();
         setTranscript(combined);
         setInput(combined);
@@ -299,11 +268,9 @@ export default function Addie() {
           taRef.current.style.height = "auto";
           taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + "px";
         }
-        // When this instance ends, sessionFinal becomes part of the carried-over base.
         r._lastSessionFinal = sessionFinal;
       };
       r.onend = () => {
-        // Carry forward what this instance finalized, before starting a new one.
         if (r._lastSessionFinal) finalTextRef.current += r._lastSessionFinal;
         if (!userStoppedRef.current) {
           try { startInstance(); } catch { setListening(false); }
@@ -314,7 +281,7 @@ export default function Addie() {
       };
       r.onerror = (ev) => {
         if (ev.error === "no-speech" || ev.error === "aborted") {
-          // benign — onend will handle restart
+          // benign
         } else {
           userStoppedRef.current = true;
           setListening(false);
@@ -331,7 +298,6 @@ export default function Addie() {
     setListening(false);
   };
 
-  // Calendar: build a tap-to-add link (Google Calendar webcal works across phone OSes)
   const calendarLink = (title, whenIso, minutes) => {
     try {
       const start = new Date(whenIso);
@@ -407,9 +373,7 @@ export default function Addie() {
       setTasks(p => p.map(t => t.id===s.targetId ? {...t, done:true} : t));
       showToast(`✓  ${t?.text || "Done"}`);
     }
-    else if (s.type === "timer") {
-      startTimer(s.minutes, s.label);
-    }
+    else if (s.type === "timer") { startTimer(s.minutes, s.label); }
     else if (s.type === "calendar") {
       const link = calendarLink(s.title, s.when, s.minutes);
       if (link) window.open(link, "_blank");
@@ -555,7 +519,28 @@ export default function Addie() {
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg, position:"relative" }} onClick={() => menuId && setMenuId(null)}>
 
-      <audio ref={alarmAudioRef} preload="auto" />
+      {/* ── TIMER ALERT OVERLAY ── */}
+      {timerAlert && (
+        <div style={{
+          position:"fixed", inset:0, zIndex:100,
+          display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+          animation:"alertFlash 0.6s ease-in-out infinite alternate",
+          backgroundColor:"#FF3B30",
+        }}>
+          <div style={{ fontSize:72, marginBottom:16, animation:"bounce 0.5s ease-in-out infinite alternate" }}>⏰</div>
+          <h1 style={{ color:"#fff", fontSize:36, fontWeight:800, margin:"0 0 10px", textAlign:"center" }}>Time's up!</h1>
+          {timer?.label && <p style={{ color:"rgba(255,255,255,0.85)", fontSize:18, margin:"0 0 40px", textAlign:"center", maxWidth:280 }}>{timer.label}</p>}
+          <button
+            onClick={dismissTimerAlert}
+            style={{
+              fontSize:18, fontWeight:700, color:"#FF3B30", backgroundColor:"#fff",
+              border:"none", borderRadius:16, padding:"16px 48px", cursor:"pointer",
+              boxShadow:"0 4px 20px rgba(0,0,0,0.2)"
+            }}>
+            Done
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ padding:"12px 18px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:11, flexShrink:0 }}>
@@ -568,37 +553,14 @@ export default function Addie() {
           <span onClick={() => { setMessages([]); setStarted(false); setPending([]); }} role="button"
             style={{ fontSize:12, color:C.text2, backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:8, padding:"6px 12px", cursor:"pointer", marginRight:8 }}>New session</span>
         )}
-        <span onClick={() => setShowSettings(true)} role="button" aria-label="Settings"
-          style={{ fontSize:20, cursor:"pointer", padding:"2px 4px", lineHeight:1 }}>⚙️</span>
       </div>
 
-      {/* Settings overlay */}
-      {showSettings && (
-        <div onClick={() => setShowSettings(false)} style={{ position:"absolute", inset:0, zIndex:50, backgroundColor:"rgba(0,0,0,0.35)", display:"flex", alignItems:"flex-end" }}>
-          <div onClick={e => e.stopPropagation()} style={{ width:"100%", backgroundColor:C.bg, borderTopLeftRadius:18, borderTopRightRadius:18, padding:"20px 22px 28px", maxWidth:720, margin:"0 auto" }}>
-            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
-              <h3 style={{ margin:0, fontSize:18, fontWeight:600, color:C.text }}>Settings</h3>
-              <span onClick={() => setShowSettings(false)} role="button" style={{ fontSize:22, cursor:"pointer", color:C.text3 }}>✕</span>
-            </div>
-
-            <p style={{ fontSize:13, fontWeight:600, color:C.text2, margin:"0 0 4px" }}>Timer alarm sound</p>
-            <p style={{ fontSize:12, color:C.text3, margin:"0 0 12px", lineHeight:1.5 }}>Tap a sound to preview it. <b>You must preview at least once</b> so your phone allows the alarm to play when a timer ends.</p>
-            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-              {Object.keys(SOUNDS.current).map(key => (
-                <div key={key} onClick={() => { setSoundChoice(key); previewSound(key); }} role="button"
-                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", borderRadius:10, border:`1.5px solid ${soundChoice===key?C.blue:C.borderLt}`, backgroundColor:soundChoice===key?C.blueBg:C.bg, cursor:"pointer" }}>
-                  <span style={{ fontSize:14, color:C.text, fontWeight:soundChoice===key?600:400 }}>{SOUND_LABELS[key]}</span>
-                  <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>{soundChoice===key ? "✓ Selected · tap to test" : "Preview"}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginTop:14, padding:"10px 14px", borderRadius:10, backgroundColor: soundUnlocked ? C.greenBg : "#FEF3C7" }}>
-              <span style={{ fontSize:12.5, color: soundUnlocked ? C.greenText : "#92400E", fontWeight:500 }}>
-                {soundUnlocked ? "✓ Sound is enabled — alarms will play." : "⚠ Preview a sound above to enable timer alarms."}
-              </span>
-            </div>
-            <p style={{ fontSize:11.5, color:C.text3, margin:"14px 0 0", lineHeight:1.5 }}>Make sure your phone's <b>media volume</b> is up (not just the ringer) — they're separate on most phones.</p>
-          </div>
+      {/* Notification permission nudge — shown only if denied */}
+      {notifPermission === "denied" && (
+        <div style={{ padding:"10px 18px", backgroundColor:"#FEF3C7", borderBottom:`1px solid #FDE68A`, flexShrink:0 }}>
+          <p style={{ margin:0, fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>
+            ⚠️ Notifications are blocked — the timer alarm won't sound. To fix: open Chrome Settings → Site settings → Notifications → allow this site.
+          </p>
         </div>
       )}
 
@@ -730,6 +692,13 @@ export default function Addie() {
                 <div style={{ width:52, height:52, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px", fontSize:26 }}>⏱️</div>
                 <h3 style={{ margin:"0 0 5px", fontSize:19, fontWeight:600, color:C.text }}>Focus timer</h3>
                 <p style={{ margin:"0 0 24px", fontSize:13.5, color:C.text3, lineHeight:1.5 }}>Just pick a length and start. Don't aim to finish — aim to begin.</p>
+                {notifPermission === "default" && (
+                  <div style={{ margin:"0 auto 20px", padding:"12px 16px", backgroundColor:"#EFF6FF", border:`1px solid ${C.blueBorder}`, borderRadius:12, maxWidth:320, textAlign:"left" }}>
+                    <p style={{ margin:0, fontSize:12.5, color:C.blueText, lineHeight:1.5 }}>
+                      📣 <strong>Starting a timer will ask for notification permission</strong> — allow it so your alarm fires even if the screen turns off.
+                    </p>
+                  </div>
+                )}
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, maxWidth:280, margin:"0 auto" }}>
                   {TIMER_PRESETS.map(m => (
                     <div key={m} onClick={() => startTimer(m,"")} role="button"
@@ -758,7 +727,7 @@ export default function Addie() {
                 </div>
                 {!timer.done && (
                   <p style={{ margin:"22px 0 0", fontSize:12, color:C.text3, lineHeight:1.5, maxWidth:320, marginLeft:"auto", marginRight:"auto" }}>
-                    Screen stays on while the timer runs.{!soundUnlocked && <> <span onClick={() => setShowSettings(true)} role="button" style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>Enable alarm sound</span> so you hear it end.</>} Walking away? <a href={`https://www.google.com/search?q=set+timer+${Math.ceil(timer.remaining/60)}+minutes`} target="_blank" rel="noreferrer" style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>Set a phone alarm</a> as backup.
+                    Screen stays on while the timer runs. Walking away? <a href={`https://www.google.com/search?q=set+timer+${Math.ceil(timer.remaining/60)}+minutes`} target="_blank" rel="noreferrer" style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>Set a phone alarm</a> as backup.
                   </p>
                 )}
               </div>
@@ -845,7 +814,17 @@ export default function Addie() {
         <span onClick={resetAll} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Reset everything</span>
       </div>
 
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}} *{box-sizing:border-box;}`}</style>
+      <style>{`
+        @keyframes alertFlash {
+          0%   { background-color: #FF3B30; }
+          100% { background-color: #FF6961; }
+        }
+        @keyframes bounce {
+          0%   { transform: translateY(0px); }
+          100% { transform: translateY(-12px); }
+        }
+        * { box-sizing: border-box; }
+      `}</style>
     </div>
   );
 }
