@@ -114,6 +114,9 @@ export default function Addie() {
   const [timer, setTimer] = useState(null);
   const [pastExpanded, setPastExpanded] = useState(false);
   const [doneExpanded, setDoneExpanded] = useState(false);
+  const [soundChoice, setSoundChoice] = useState("chime");
+  const [soundUnlocked, setSoundUnlocked] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const bottomRef = useRef(null);
   const recRef = useRef(null);
   const taRef = useRef(null);
@@ -129,6 +132,7 @@ export default function Addie() {
         if (s.grocery) setGrocery(s.grocery);
         if (s.messages) { setMessages(s.messages); }
         if (s.lastActivity) setLastActivity(s.lastActivity);
+        if (s.soundChoice) setSoundChoice(s.soundChoice);
         // Always open fresh — past is collapsed until user expands it.
         setStarted(false);
         setPastExpanded(false);
@@ -139,8 +143,19 @@ export default function Addie() {
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity })); } catch {}
-  }, [tasks, grocery, messages, lastActivity, hydrated]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity, soundChoice })); } catch {}
+  }, [tasks, grocery, messages, lastActivity, soundChoice, hydrated]);
+
+  // Keep wake lock alive while a timer EXISTS (running or in done state), release only when cleared.
+  useEffect(() => {
+    const onVis = async () => {
+      if (document.visibilityState === "visible" && timer && !wakeLockRef.current) {
+        await requestWakeLock();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [timer]);
 
   useEffect(() => {
     // Scroll body to top on tab change (Board, Timer, Grocery should open from top, not bottom)
@@ -169,45 +184,76 @@ export default function Addie() {
 
   const wakeLockRef = useRef(null);
   const alarmAudioRef = useRef(null);
+  const alarmActiveRef = useRef(false);
 
-  // A short beep encoded as a data URI WAV — no external file needed, plays via <audio> element.
-  // This is more reliable on mobile than Web Audio oscillators.
-  const ALARM_SRC = "data:audio/wav;base64,UklGRiQEAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAEAAB/f39/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAf39/f39/f3+AgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAf39/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAf39/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAf39/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAf39/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgIB/f39/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAf39/";
+  // Generate a tone as a WAV data URI at a given frequency/duration. Built once.
+  const makeTone = (freq, seconds) => {
+    const rate = 8000, n = Math.floor(rate * seconds);
+    const bytes = 44 + n * 2;
+    const buf = new ArrayBuffer(bytes); const dv = new DataView(buf);
+    const ws = (o, s) => { for (let i=0;i<s.length;i++) dv.setUint8(o+i, s.charCodeAt(i)); };
+    ws(0,"RIFF"); dv.setUint32(4, 36+n*2, true); ws(8,"WAVE"); ws(12,"fmt ");
+    dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
+    dv.setUint32(24,rate,true); dv.setUint32(28,rate*2,true); dv.setUint16(32,2,true);
+    dv.setUint16(34,16,true); ws(36,"data"); dv.setUint32(40,n*2,true);
+    for (let i=0;i<n;i++) {
+      const t = i/rate;
+      const env = Math.min(1, t*20) * Math.max(0, 1 - (t/seconds)); // quick attack, decay
+      const v = Math.sin(2*Math.PI*freq*t) * env * 0.5;
+      dv.setInt16(44+i*2, v*32767, true);
+    }
+    let bin=""; const u8=new Uint8Array(buf);
+    for (let i=0;i<u8.length;i++) bin += String.fromCharCode(u8[i]);
+    return "data:audio/wav;base64," + btoa(bin);
+  };
+  const SOUNDS = useRef(null);
+  if (!SOUNDS.current) {
+    SOUNDS.current = {
+      chime: makeTone(880, 0.5),
+      bell:  makeTone(660, 0.7),
+      ping:  makeTone(1320, 0.3),
+      low:   makeTone(440, 0.6),
+    };
+  }
+  const SOUND_LABELS = { chime: "Chime", bell: "Bell", ping: "Ping", low: "Low tone" };
 
   const requestWakeLock = async () => {
-    try {
-      if ("wakeLock" in navigator) {
-        wakeLockRef.current = await navigator.wakeLock.request("screen");
-      }
-    } catch {}
+    try { if ("wakeLock" in navigator) wakeLockRef.current = await navigator.wakeLock.request("screen"); } catch {}
   };
   const releaseWakeLock = async () => {
     try { await wakeLockRef.current?.release(); } catch {}
     wakeLockRef.current = null;
   };
-  useEffect(() => {
-    const onVis = async () => {
-      if (document.visibilityState === "visible" && timer && timer.running && !wakeLockRef.current) {
-        await requestWakeLock();
+
+  // Preview a sound — this full user-initiated playback is what unlocks audio for later autoplay.
+  const previewSound = (key) => {
+    try {
+      const a = alarmAudioRef.current;
+      if (a) {
+        a.src = SOUNDS.current[key];
+        a.loop = false;
+        a.currentTime = 0;
+        a.play().then(() => setSoundUnlocked(true)).catch(() => {});
       }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [timer]);
+    } catch {}
+  };
 
   const playAlarmSound = () => {
     try {
       const a = alarmAudioRef.current;
       if (a) {
-        a.currentTime = 0;
+        a.src = SOUNDS.current[soundChoice] || SOUNDS.current.chime;
         a.loop = true;
+        a.currentTime = 0;
         a.play().catch(() => {});
+        alarmActiveRef.current = true;
       }
     } catch {}
-    try { navigator.vibrate?.([300, 120, 300, 120, 500]); } catch {}
+    try { navigator.vibrate?.([300, 120, 300, 120, 500, 120, 500]); } catch {}
   };
   const stopAlarmSound = () => {
     try { const a = alarmAudioRef.current; if (a) { a.pause(); a.loop = false; a.currentTime = 0; } } catch {}
+    alarmActiveRef.current = false;
     try { navigator.vibrate?.(0); } catch {}
   };
 
@@ -507,7 +553,7 @@ export default function Addie() {
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg, position:"relative" }} onClick={() => menuId && setMenuId(null)}>
 
-      <audio ref={alarmAudioRef} src={ALARM_SRC} preload="auto" />
+      <audio ref={alarmAudioRef} preload="auto" />
 
       {/* Header */}
       <div style={{ padding:"12px 18px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:11, flexShrink:0 }}>
@@ -518,9 +564,41 @@ export default function Addie() {
         </div>
         {tab==="chat" && messages.length>0 && (
           <span onClick={() => { setMessages([]); setStarted(false); setPending([]); }} role="button"
-            style={{ fontSize:12, color:C.text2, backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:8, padding:"6px 12px", cursor:"pointer" }}>New session</span>
+            style={{ fontSize:12, color:C.text2, backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:8, padding:"6px 12px", cursor:"pointer", marginRight:8 }}>New session</span>
         )}
+        <span onClick={() => setShowSettings(true)} role="button" aria-label="Settings"
+          style={{ fontSize:20, cursor:"pointer", padding:"2px 4px", lineHeight:1 }}>⚙️</span>
       </div>
+
+      {/* Settings overlay */}
+      {showSettings && (
+        <div onClick={() => setShowSettings(false)} style={{ position:"absolute", inset:0, zIndex:50, backgroundColor:"rgba(0,0,0,0.35)", display:"flex", alignItems:"flex-end" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width:"100%", backgroundColor:C.bg, borderTopLeftRadius:18, borderTopRightRadius:18, padding:"20px 22px 28px", maxWidth:720, margin:"0 auto" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
+              <h3 style={{ margin:0, fontSize:18, fontWeight:600, color:C.text }}>Settings</h3>
+              <span onClick={() => setShowSettings(false)} role="button" style={{ fontSize:22, cursor:"pointer", color:C.text3 }}>✕</span>
+            </div>
+
+            <p style={{ fontSize:13, fontWeight:600, color:C.text2, margin:"0 0 4px" }}>Timer alarm sound</p>
+            <p style={{ fontSize:12, color:C.text3, margin:"0 0 12px", lineHeight:1.5 }}>Tap a sound to preview it. <b>You must preview at least once</b> so your phone allows the alarm to play when a timer ends.</p>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {Object.keys(SOUNDS.current).map(key => (
+                <div key={key} onClick={() => { setSoundChoice(key); previewSound(key); }} role="button"
+                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", borderRadius:10, border:`1.5px solid ${soundChoice===key?C.blue:C.borderLt}`, backgroundColor:soundChoice===key?C.blueBg:C.bg, cursor:"pointer" }}>
+                  <span style={{ fontSize:14, color:C.text, fontWeight:soundChoice===key?600:400 }}>{SOUND_LABELS[key]}</span>
+                  <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>{soundChoice===key ? "✓ Selected · tap to test" : "Preview"}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop:14, padding:"10px 14px", borderRadius:10, backgroundColor: soundUnlocked ? C.greenBg : "#FEF3C7" }}>
+              <span style={{ fontSize:12.5, color: soundUnlocked ? C.greenText : "#92400E", fontWeight:500 }}>
+                {soundUnlocked ? "✓ Sound is enabled — alarms will play." : "⚠ Preview a sound above to enable timer alarms."}
+              </span>
+            </div>
+            <p style={{ fontSize:11.5, color:C.text3, margin:"14px 0 0", lineHeight:1.5 }}>Make sure your phone's <b>media volume</b> is up (not just the ringer) — they're separate on most phones.</p>
+          </div>
+        </div>
+      )}
 
       {/* Persistent timer indicator */}
       {timer && tab!=="timer" && (
@@ -678,7 +756,7 @@ export default function Addie() {
                 </div>
                 {!timer.done && (
                   <p style={{ margin:"22px 0 0", fontSize:12, color:C.text3, lineHeight:1.5, maxWidth:320, marginLeft:"auto", marginRight:"auto" }}>
-                    Screen stays on while the timer runs. Walking away? <a href={`https://www.google.com/search?q=set+timer+${Math.ceil(timer.remaining/60)}+minutes`} target="_blank" rel="noreferrer" style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>Set a phone alarm</a> as backup.
+                    Screen stays on while the timer runs.{!soundUnlocked && <> <span onClick={() => setShowSettings(true)} role="button" style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>Enable alarm sound</span> so you hear it end.</>} Walking away? <a href={`https://www.google.com/search?q=set+timer+${Math.ceil(timer.remaining/60)}+minutes`} target="_blank" rel="noreferrer" style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>Set a phone alarm</a> as backup.
                   </p>
                 )}
               </div>
