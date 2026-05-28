@@ -6,10 +6,7 @@
   "background_color": "#ffffff",
   "theme_color": "#0B84FE",
   "icons": [
-    {
-      "src": "https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f9e0.png",
-      "sizes": "72x72",
-      "type": "image/png"
-    }
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
