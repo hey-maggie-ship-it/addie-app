@@ -168,7 +168,11 @@ export default function Addie() {
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 4000); };
 
   const wakeLockRef = useRef(null);
-  const audioCtxRef = useRef(null);
+  const alarmAudioRef = useRef(null);
+
+  // A short beep encoded as a data URI WAV — no external file needed, plays via <audio> element.
+  // This is more reliable on mobile than Web Audio oscillators.
+  const ALARM_SRC = "data:audio/wav;base64,UklGRiQEAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAEAAB/f39/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAf39/f39/f3+AgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAf39/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAf39/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAf39/f39/f3+AgICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAf39/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgIB/f39/f39/f3+AgICAgICAgH9/f39/f39/gICAgICAgIB/f39/f39/f4CAgICAgICAgH9/f39/f3+AgICAgICAgIB/f39/f39/gICAgICAgICAf39/f39/f4CAgICAgICAf39/";
 
   const requestWakeLock = async () => {
     try {
@@ -181,7 +185,6 @@ export default function Addie() {
     try { await wakeLockRef.current?.release(); } catch {}
     wakeLockRef.current = null;
   };
-  // Re-acquire wake lock if it was released by tab visibility change
   useEffect(() => {
     const onVis = async () => {
       if (document.visibilityState === "visible" && timer && timer.running && !wakeLockRef.current) {
@@ -192,26 +195,20 @@ export default function Addie() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [timer]);
 
-  const playAlarmSound = async () => {
+  const playAlarmSound = () => {
     try {
-      if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      const ctx = audioCtxRef.current;
-      // Critical on mobile: resume the context right before playing — it suspends during the countdown.
-      if (ctx.state === "suspended") { try { await ctx.resume(); } catch {} }
-      const now = ctx.currentTime;
-      [0, 0.4, 0.8].forEach(delay => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.frequency.value = 880; osc.type = "sine";
-        gain.gain.setValueAtTime(0.0001, now + delay);
-        gain.gain.exponentialRampToValueAtTime(0.4, now + delay + 0.03);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.35);
-        osc.start(now + delay);
-        osc.stop(now + delay + 0.4);
-      });
+      const a = alarmAudioRef.current;
+      if (a) {
+        a.currentTime = 0;
+        a.loop = true;
+        a.play().catch(() => {});
+      }
     } catch {}
     try { navigator.vibrate?.([300, 120, 300, 120, 500]); } catch {}
+  };
+  const stopAlarmSound = () => {
+    try { const a = alarmAudioRef.current; if (a) { a.pause(); a.loop = false; a.currentTime = 0; } } catch {}
+    try { navigator.vibrate?.(0); } catch {}
   };
 
   const startTimer = (min, label) => {
@@ -509,6 +506,8 @@ export default function Addie() {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg, position:"relative" }} onClick={() => menuId && setMenuId(null)}>
+
+      <audio ref={alarmAudioRef} src={ALARM_SRC} preload="auto" />
 
       {/* Header */}
       <div style={{ padding:"12px 18px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:11, flexShrink:0 }}>
