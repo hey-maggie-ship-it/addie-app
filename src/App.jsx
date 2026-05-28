@@ -192,24 +192,26 @@ export default function Addie() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [timer]);
 
-  const playAlarmSound = () => {
+  const playAlarmSound = async () => {
     try {
       if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
       const ctx = audioCtxRef.current;
-      // Three quick beeps — pleasant but unmissable
-      [0, 0.35, 0.7].forEach(delay => {
+      // Critical on mobile: resume the context right before playing — it suspends during the countdown.
+      if (ctx.state === "suspended") { try { await ctx.resume(); } catch {} }
+      const now = ctx.currentTime;
+      [0, 0.4, 0.8].forEach(delay => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain); gain.connect(ctx.destination);
         osc.frequency.value = 880; osc.type = "sine";
-        gain.gain.setValueAtTime(0, ctx.currentTime + delay);
-        gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + delay + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.25);
-        osc.start(ctx.currentTime + delay);
-        osc.stop(ctx.currentTime + delay + 0.3);
+        gain.gain.setValueAtTime(0.0001, now + delay);
+        gain.gain.exponentialRampToValueAtTime(0.4, now + delay + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.35);
+        osc.start(now + delay);
+        osc.stop(now + delay + 0.4);
       });
     } catch {}
-    try { navigator.vibrate?.([200, 100, 200, 100, 400]); } catch {}
+    try { navigator.vibrate?.([300, 120, 300, 120, 500]); } catch {}
   };
 
   const startTimer = (min, label) => {
