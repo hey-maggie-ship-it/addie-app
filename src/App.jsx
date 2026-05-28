@@ -125,6 +125,36 @@ export default function Addie() {
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
 
+  // Detect platform for backup alarm link
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+  // Play a tone via WebAudio — works on foreground user-gesture contexts
+  const playTone = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const playNote = (freq, start, duration) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0, ctx.currentTime + start);
+        gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + start + 0.02);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + start + duration);
+        osc.start(ctx.currentTime + start);
+        osc.stop(ctx.currentTime + start + duration + 0.05);
+      };
+      // Three-note chime: C5 → E5 → G5
+      playNote(523, 0,    0.25);
+      playNote(659, 0.28, 0.25);
+      playNote(784, 0.56, 0.5);
+      // Repeat once
+      playNote(523, 1.2,  0.25);
+      playNote(659, 1.48, 0.25);
+      playNote(784, 1.76, 0.5);
+    } catch {}
+  };
+
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -194,7 +224,10 @@ export default function Addie() {
           const remaining = Math.max(0, Math.round((timerEndTimeRef.current - Date.now()) / 1000));
           if (remaining <= 0) {
             setTimer(t => t ? { ...t, remaining: 0, running: false, done: true } : null);
-            triggerTimerAlert();
+            setTimerAlert(true);
+            // visibilitychange IS a user gesture context on most Android Chrome — play sound
+            playTone();
+            try { navigator.vibrate?.([300, 100, 300, 100, 500, 100, 500]); } catch {}
           } else {
             setTimer(t => t ? { ...t, remaining } : null);
           }
@@ -239,6 +272,7 @@ export default function Addie() {
   const triggerTimerAlert = () => {
     setTimerAlert(true);
     fireNotification(timer?.label || "");
+    playTone();
   };
 
   const dismissTimerAlert = () => {
@@ -693,9 +727,22 @@ export default function Addie() {
                   <span onClick={clearTimer} role="button" style={{ fontSize:14, fontWeight:600, color:C.text2, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"10px 24px", cursor:"pointer" }}>{timer.done?"Done":"Stop"}</span>
                 </div>
                 {!timer.done && (
-                  <p style={{ margin:"22px 0 0", fontSize:12, color:C.text3, lineHeight:1.5, maxWidth:320, marginLeft:"auto", marginRight:"auto" }}>
-                    Screen stays on while the timer runs. Walking away? <a href={`https://www.google.com/search?q=set+timer+${Math.ceil(timer.remaining/60)}+minutes`} target="_blank" rel="noreferrer" style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>Set a phone alarm</a> as backup.
-                  </p>
+                  <div style={{ margin:"22px auto 0", maxWidth:320, padding:"12px 14px", backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:12, textAlign:"left" }}>
+                    <p style={{ margin:"0 0 6px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
+                      📵 <strong>Walking away?</strong> Addie can't alert you when the app is backgrounded — set a backup timer on your phone.
+                    </p>
+                    <p style={{ margin:0, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
+                      Set a{isIOS ? " Siri" : " Google"} timer as backup:{" "}
+                      <a
+                        href={isIOS
+                          ? `https://www.siri.com`
+                          : `https://www.google.com/search?q=set+timer+for+${Math.ceil((timer.remaining||0)/60)}+minutes`}
+                        target="_blank" rel="noreferrer"
+                        style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>
+                        {isIOS ? `"Hey Siri, set a timer for ${Math.ceil((timer.remaining||0)/60)} minutes"` : `Google: set timer ${Math.ceil((timer.remaining||0)/60)} min`}
+                      </a>
+                    </p>
+                  </div>
                 )}
               </div>
             )}
@@ -751,7 +798,7 @@ export default function Addie() {
       {tab==="chat" && (
         <div style={{ padding:"16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
           <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
-            placeholder="Message Addie…" rows={2}
+            placeholder="Message Addie… (tap 🎤 on your keyboard to dictate)" rows={2}
             style={{ flex:1, resize:"none", fontSize:14, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
