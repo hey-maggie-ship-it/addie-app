@@ -37,6 +37,7 @@ const C = {
 };
 
 function buildSystemPrompt(tasks, grocery) {
+  const todayDate = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const today  = tasks.filter(t => t.bucket === "today"  && !t.done);
   const week   = tasks.filter(t => t.bucket === "week"   && !t.done);
   const parked = tasks.filter(t => t.bucket === "parked" && !t.done);
@@ -45,6 +46,8 @@ function buildSystemPrompt(tasks, grocery) {
   const withNext = tasks.filter(t => t.nextStep && !t.done);
 
   return `You are Addie, a warm, direct, no-nonsense AI coach for high-achieving professionals with ADHD. Thinking partner — not a task manager, not a therapist.
+
+Today is ${todayDate}.
 
 Be DECISIVE when someone needs an answer or is ready to act — give your best take in one shot rather than dragging a question across many turns. One clarifying question is fine; three is too many.
 
