@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────
-// ADDIE — ADHD Daily Assistant · Deployable build v2
+// ADDIE — A thinking partner for overwhelmed high achievers · v3
 // Set VITE_ANTHROPIC_KEY in your Vercel environment variables.
 // ──────────────────────────────────────────────────────────
 
@@ -7,7 +7,25 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_KEY || "";
 const STORAGE_KEY = "addie-app-state-v1";
+const PROFILE_KEY = "addie-profile-v1";
 const IDLE_RESET_MS = 60 * 60 * 1000;
+
+// First-launch onboarding — quick, skippable. Seeds Addie's tone; she adapts from there.
+const ONBOARD_STYLE = [
+  { value: "direct", label: "Cut to the chase", hint: "Give me the answer, skip the preamble" },
+  { value: "explore", label: "Talk it through first", hint: "Help me think out loud before deciding" },
+];
+const ONBOARD_PATTERN = [
+  { value: "starting",  label: "Getting started",     emoji: "🚧" },
+  { value: "finishing", label: "Finishing things",    emoji: "🏁" },
+  { value: "volume",    label: "Too much at once",    emoji: "🌀" },
+  { value: "time",      label: "Losing track of time", emoji: "⏳" },
+];
+
+const PROFILE_LABELS = {
+  style:   Object.fromEntries(ONBOARD_STYLE.map(o => [o.value, o.label])),
+  pattern: Object.fromEntries(ONBOARD_PATTERN.map(o => [o.value, o.label])),
+};
 
 const STARTERS = [
   { icon: "🌅", label: "Morning check-in", prompt: "Morning check-in" },
@@ -36,7 +54,25 @@ const C = {
   indigo: "#4F46E5", indigoBg: "#EEF2FF", indigoLight: "#6366F1",
 };
 
-function buildSystemPrompt(tasks, grocery) {
+function buildProfileBlock(profile) {
+  if (!profile) return "";
+  const parts = [];
+  if (profile.style)   parts.push(`- Prefers: ${profile.style === "direct" ? "directness — cut to the chase, lead with the answer, keep preamble short" : "thinking it through — talk things out before landing on a decision"}`);
+  if (profile.pattern) {
+    const map = {
+      starting:  "getting started — the hardest part for them is beginning. Offer the smallest possible first step and time-boxing.",
+      finishing: "finishing — they start strong but stall before the end. Help them close loops and define 'done'.",
+      volume:    "too much at once — they get overwhelmed by volume. Help them triage to one thing at a time.",
+      time:      "time blindness — they lose track of time. Be concrete about durations and gently surface timers.",
+    };
+    parts.push(`- Struggles most with: ${map[profile.pattern]}`);
+  }
+  if (profile.context && profile.context.trim()) parts.push(`- Context / what's on their plate: ${profile.context.trim()}`);
+  if (!parts.length) return "";
+  return `\n\nUSER PROFILE (from onboarding — use to shape your tone and suggestions from the first message):\n${parts.join("\n")}\n\nADAPT OVER TIME: This profile is a starting point, not a cage. If the user gives a clear signal mid-conversation — "you're being too wordy," "just tell me what to do," "slow down," visible frustration — honor it and adjust your style for the rest of the session. Don't silently re-profile them on a whim; respond to explicit cues. They can change these preferences anytime in Settings.`;
+}
+
+function buildSystemPrompt(tasks, grocery, profile) {
   const todayDate = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const today  = tasks.filter(t => t.bucket === "today"  && !t.done);
   const week   = tasks.filter(t => t.bucket === "week"   && !t.done);
@@ -45,9 +81,9 @@ function buildSystemPrompt(tasks, grocery) {
   const gItems = grocery.filter(g => !g.checked);
   const withNext = tasks.filter(t => t.nextStep && !t.done);
 
-  return `You are Addie, a warm, direct, no-nonsense AI coach for high-achieving professionals with ADHD. Thinking partner — not a task manager, not a therapist.
+  return `You are Addie, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Not a task manager, not a therapist.
 
-Today is ${todayDate}.
+Today is ${todayDate}.${buildProfileBlock(profile)}
 
 Be DECISIVE when someone needs an answer or is ready to act — give your best take in one shot rather than dragging a question across many turns. One clarifying question is fine; three is too many.
 
@@ -70,6 +106,8 @@ GROCERY: ${gItems.length ? gItems.map(g=>`"${g.text}"${g.store?` (from ${g.store
 Today has ${today.length}/${MAX_TODAY} slots. ${today.length>=MAX_TODAY?"Today is FULL.":`${MAX_TODAY-today.length} remaining.`}
 
 When the user explicitly says they finished or completed something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge. NEVER suggest type:complete for something the user said they didn't do, couldn't start, skipped, or hasn't done yet.
+
+TASKS vs NEXT STEPS: A task on the board is the thing the user wants done (e.g. "Plan Q3 offsite"). A "next step" is the single concrete action that moves that task forward right now (e.g. "Email venue for availability"). When the user describes the immediate action for a task ALREADY on the board, attach it with type:nextstep to that task's id — do NOT create a brand-new task for it. Only use type:task when it's genuinely a new, separate thing not represented on the board. Before adding a task, check CURRENT TASK MEMORY above — if it's the same as or a sub-action of something already there, use nextstep instead.
 
 A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). When the user asks you to start a timer, include a type:timer suggestion in the SUGGESTIONS block.
 
@@ -121,6 +159,10 @@ export default function Addie() {
   const [doneExpanded, setDoneExpanded] = useState(false);
   const [timerAlert, setTimerAlert] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
+  const [profile, setProfile] = useState(null);          // { style, pattern, context }
+  const [onboarded, setOnboarded] = useState(true);      // assume true until hydration says otherwise
+  const [onboardDraft, setOnboardDraft] = useState({ style: "", pattern: "", context: "" });
+  const [showSettings, setShowSettings] = useState(false);
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
@@ -173,6 +215,16 @@ export default function Addie() {
         setPastExpanded(false);
       }
     } catch {}
+    try {
+      const praw = window.localStorage.getItem(PROFILE_KEY);
+      if (praw) {
+        const p = JSON.parse(praw);
+        setProfile(p);
+        setOnboarded(true);
+      } else {
+        setOnboarded(false);   // first launch — show onboarding card
+      }
+    } catch { setOnboarded(false); }
     if ("Notification" in window) setNotifPermission(Notification.permission);
     setHydrated(true);
   }, []);
@@ -364,7 +416,7 @@ export default function Addie() {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, system: buildSystemPrompt(tasks, grocery), messages: next.map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, system: buildSystemPrompt(tasks, grocery, profile), messages: next.map(m => ({ role: m.role, content: m.content })) }),
       });
       const data = await res.json();
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
@@ -415,6 +467,26 @@ export default function Addie() {
   const deleteGrocery = (id) => setGrocery(p => p.filter(g => g.id!==id));
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
   const resetAll = () => { setTasks([]); setGrocery([]); setMessages([]); setStarted(false); setPending([]); try{window.localStorage.removeItem(STORAGE_KEY);}catch{} showToast("Everything cleared"); };
+
+  // ── Onboarding / profile ──
+  const persistProfile = (p) => { try { window.localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch {} };
+  const finishOnboarding = () => {
+    const p = { style: onboardDraft.style, pattern: onboardDraft.pattern, context: onboardDraft.context.trim() };
+    setProfile(p); persistProfile(p); setOnboarded(true);
+    if (p.style || p.pattern || p.context) showToast("Got it — Addie's tuned to you");
+  };
+  const skipOnboarding = () => {
+    const p = { style: "", pattern: "", context: "" };
+    setProfile(p); persistProfile(p); setOnboarded(true);
+  };
+  const saveSettings = () => {
+    const p = { style: onboardDraft.style, pattern: onboardDraft.pattern, context: onboardDraft.context.trim() };
+    setProfile(p); persistProfile(p); setShowSettings(false); showToast("Preferences saved");
+  };
+  const openSettings = () => {
+    setOnboardDraft({ style: profile?.style || "", pattern: profile?.pattern || "", context: profile?.context || "" });
+    setShowSettings(true);
+  };
 
   const editInputRef = useRef(null);
   const editCaretRef = useRef(null);
@@ -519,6 +591,65 @@ export default function Addie() {
 
   if (!hydrated) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"system-ui,sans-serif", color:C.text3 }}>Loading your space…</div>;
 
+  // Shared profile fields, used by both onboarding and Settings
+  const profileFields = () => (
+    <>
+      <div style={{ marginBottom:22 }}>
+        <p style={{ margin:"0 0 10px", fontSize:14, fontWeight:600, color:C.text }}>When you're stuck, what helps more?</p>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {ONBOARD_STYLE.map(o => {
+            const sel = onboardDraft.style === o.value;
+            return (
+              <div key={o.value} role="button" onClick={() => setOnboardDraft(d => ({ ...d, style: sel ? "" : o.value }))}
+                style={{ padding:"12px 14px", borderRadius:12, border:`1.5px solid ${sel?C.blue:C.borderLt}`, backgroundColor:sel?C.blueBg:C.bg, cursor:"pointer" }}>
+                <span style={{ fontSize:14.5, fontWeight:600, color:sel?C.blueText:C.text }}>{o.label}</span>
+                <p style={{ margin:"2px 0 0", fontSize:12.5, color:C.text3 }}>{o.hint}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ marginBottom:22 }}>
+        <p style={{ margin:"0 0 10px", fontSize:14, fontWeight:600, color:C.text }}>What trips you up most?</p>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+          {ONBOARD_PATTERN.map(o => {
+            const sel = onboardDraft.pattern === o.value;
+            return (
+              <div key={o.value} role="button" onClick={() => setOnboardDraft(d => ({ ...d, pattern: sel ? "" : o.value }))}
+                style={{ padding:"12px", borderRadius:12, border:`1.5px solid ${sel?C.blue:C.borderLt}`, backgroundColor:sel?C.blueBg:C.bg, cursor:"pointer", textAlign:"center" }}>
+                <span style={{ display:"block", fontSize:20, marginBottom:4 }}>{o.emoji}</span>
+                <span style={{ fontSize:13, fontWeight:600, color:sel?C.blueText:C.text }}>{o.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ marginBottom:8 }}>
+        <p style={{ margin:"0 0 10px", fontSize:14, fontWeight:600, color:C.text }}>What's on your plate these days? <span style={{ fontWeight:400, color:C.text3 }}>(optional)</span></p>
+        <textarea value={onboardDraft.context} onChange={e => setOnboardDraft(d => ({ ...d, context: e.target.value }))}
+          placeholder="e.g. launching a product, juggling work + a newborn, finishing my thesis…" rows={2}
+          style={{ width:"100%", resize:"none", fontSize:16, padding:"12px 14px", borderRadius:12, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box" }} />
+      </div>
+    </>
+  );
+
+  if (!onboarded) return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg }}>
+      <div style={{ flex:1, overflowY:"auto", padding:"32px 22px 24px" }}>
+        <div style={{ textAlign:"center", marginBottom:26 }}>
+          <div style={{ width:54, height:54, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px", fontSize:27 }}>🧠</div>
+          <h2 style={{ margin:"0 0 6px", fontSize:22, fontWeight:700, color:C.text }}>Hey, I'm Addie</h2>
+          <p style={{ margin:"0 auto", fontSize:14, color:C.text2, lineHeight:1.5, maxWidth:340 }}>Two quick questions so I can meet you where you are. No wrong answers — and I'll keep adjusting as we go.</p>
+        </div>
+        {profileFields()}
+      </div>
+      <div style={{ padding:"16px 22px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
+        <span role="button" onClick={skipOnboarding} style={{ fontSize:14, color:C.text2, padding:"12px 16px", cursor:"pointer", fontWeight:500 }}>Skip for now</span>
+        <span role="button" onClick={finishOnboarding} style={{ flex:1, textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:12, padding:"13px 0", cursor:"pointer" }}>Let's go</span>
+      </div>
+    </div>
+  );
+
   const TABS = [
     { key:"chat", label:"Chat", glyph:"💬" },
     { key:"board", label:"Board", glyph:"📋", count:activeTasks },
@@ -532,6 +663,24 @@ export default function Addie() {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg, position:"relative" }} onClick={() => menuId && setMenuId(null)}>
+
+      {/* Preferences / Settings overlay */}
+      {showSettings && (
+        <div style={{ position:"fixed", inset:0, zIndex:90, backgroundColor:C.bg, maxWidth:720, margin:"0 auto", display:"flex", flexDirection:"column" }}>
+          <div style={{ padding:"14px 18px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+            <span role="button" onClick={() => setShowSettings(false)} style={{ fontSize:22, color:C.text2, cursor:"pointer", lineHeight:1 }}>←</span>
+            <p style={{ margin:0, fontWeight:600, fontSize:16, color:C.text }}>Preferences</p>
+          </div>
+          <div style={{ flex:1, overflowY:"auto", padding:"22px" }}>
+            <p style={{ margin:"0 0 20px", fontSize:13.5, color:C.text2, lineHeight:1.5 }}>How Addie talks to you. She'll still adjust in the moment if you ask her to.</p>
+            {profileFields()}
+          </div>
+          <div style={{ padding:"16px 22px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, flexShrink:0 }}>
+            <span role="button" onClick={() => setShowSettings(false)} style={{ fontSize:14, color:C.text2, padding:"12px 16px", cursor:"pointer", fontWeight:500 }}>Cancel</span>
+            <span role="button" onClick={saveSettings} style={{ flex:1, textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:12, padding:"13px 0", cursor:"pointer" }}>Save</span>
+          </div>
+        </div>
+      )}
 
       {/* ── Fix 4: Indigo timer alert overlay instead of red ── */}
       {timerAlert && (
@@ -830,7 +979,10 @@ export default function Addie() {
 
       <div style={{ padding:"8px 20px", borderTop:`1px solid ${C.borderLt}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
         <span style={{ fontSize:11, color:C.text3 }}>Saved on this device</span>
-        <span onClick={resetAll} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Reset everything</span>
+        <span style={{ display:"flex", gap:14 }}>
+          <span onClick={openSettings} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Preferences</span>
+          <span onClick={resetAll} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Reset everything</span>
+        </span>
       </div>
 
       <style>{`
