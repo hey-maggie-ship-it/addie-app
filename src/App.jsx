@@ -635,7 +635,7 @@ export default function Addie() {
 
   if (!onboarded) return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg }}>
-      <div style={{ flex:1, overflowY:"auto", padding:"32px 22px 24px" }}>
+      <div style={{ flex:1, overflowY:"auto", padding:"calc(32px + env(safe-area-inset-top)) 22px 24px" }}>
         <div style={{ textAlign:"center", marginBottom:26 }}>
           <div style={{ width:54, height:54, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px", fontSize:27 }}>🧠</div>
           <h2 style={{ margin:"0 0 6px", fontSize:22, fontWeight:700, color:C.text }}>Hey, I'm Addie</h2>
@@ -643,7 +643,7 @@ export default function Addie() {
         </div>
         {profileFields()}
       </div>
-      <div style={{ padding:"16px 22px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
+      <div style={{ padding:"16px 22px calc(16px + env(safe-area-inset-bottom))", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"center", flexShrink:0 }}>
         <span role="button" onClick={skipOnboarding} style={{ fontSize:14, color:C.text2, padding:"12px 16px", cursor:"pointer", fontWeight:500 }}>Skip for now</span>
         <span role="button" onClick={finishOnboarding} style={{ flex:1, textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:12, padding:"13px 0", cursor:"pointer" }}>Let's go</span>
       </div>
@@ -667,7 +667,7 @@ export default function Addie() {
       {/* Preferences / Settings overlay */}
       {showSettings && (
         <div style={{ position:"fixed", inset:0, zIndex:90, backgroundColor:C.bg, maxWidth:720, margin:"0 auto", display:"flex", flexDirection:"column" }}>
-          <div style={{ padding:"14px 18px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+          <div style={{ padding:"calc(14px + env(safe-area-inset-top)) 18px 14px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
             <span role="button" onClick={() => setShowSettings(false)} style={{ fontSize:22, color:C.text2, cursor:"pointer", lineHeight:1 }}>←</span>
             <p style={{ margin:0, fontWeight:600, fontSize:16, color:C.text }}>Preferences</p>
           </div>
@@ -675,7 +675,7 @@ export default function Addie() {
             <p style={{ margin:"0 0 20px", fontSize:13.5, color:C.text2, lineHeight:1.5 }}>How Addie talks to you. She'll still adjust in the moment if you ask her to.</p>
             {profileFields()}
           </div>
-          <div style={{ padding:"16px 22px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, flexShrink:0 }}>
+          <div style={{ padding:"16px 22px calc(16px + env(safe-area-inset-bottom))", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, flexShrink:0 }}>
             <span role="button" onClick={() => setShowSettings(false)} style={{ fontSize:14, color:C.text2, padding:"12px 16px", cursor:"pointer", fontWeight:500 }}>Cancel</span>
             <span role="button" onClick={saveSettings} style={{ flex:1, textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:12, padding:"13px 0", cursor:"pointer" }}>Save</span>
           </div>
@@ -700,7 +700,7 @@ export default function Addie() {
       )}
 
       {/* Header */}
-      <div style={{ padding:"12px 18px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:11, flexShrink:0 }}>
+      <div style={{ padding:"calc(12px + env(safe-area-inset-top)) 18px 12px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:11, flexShrink:0 }}>
         <div style={{ width:34, height:34, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:17 }}>🧠</div>
         <div style={{ flex:1 }}>
           <p style={{ margin:0, fontWeight:600, fontSize:15, color:C.text }}>Addie</p>
@@ -977,7 +977,7 @@ export default function Addie() {
         })}
       </div>
 
-      <div style={{ padding:"8px 20px", borderTop:`1px solid ${C.borderLt}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
+      <div style={{ padding:"8px 20px calc(8px + env(safe-area-inset-bottom))", borderTop:`1px solid ${C.borderLt}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
         <span style={{ fontSize:11, color:C.text3 }}>Saved on this device</span>
         <span style={{ display:"flex", gap:14 }}>
           <span onClick={openSettings} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Preferences</span>
