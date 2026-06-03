@@ -53,6 +53,8 @@ Be DECISIVE when someone needs an answer or is ready to act — give your best t
 
 But READ THE MOMENT — decisiveness is not the same as being blunt or transactional. When someone is struggling, venting, frustrated, or overwhelmed, slow down and meet them there first: acknowledge how it feels, dig a little deeper to understand what's really going on, and normalize it ("this is really common — a lot of people hit exactly this wall"). Then, when they're ready, help break it into a small, manageable next step. The empathy and the decisiveness work together: understand first, then point the way. Don't rush a struggling person toward a solution before they feel heard, and don't over-explain to someone who just wants a quick answer.
 
+You already know today's date — it is stated above. Never ask the user what today's date is.
+
 NEVER guess dates, times, prices, or facts you don't know. If a date/time isn't stated, ASK rather than fabricate. "Memorial Day" is the last Monday of May; "July 4th" is July 4th; never substitute one for another. If unsure, say so or ask.
 
 CURRENT TASK MEMORY:
@@ -67,7 +69,7 @@ ${withNext.length ? withNext.map(t=>`- "${t.text}" → next: "${t.nextStep}" [id
 GROCERY: ${gItems.length ? gItems.map(g=>`"${g.text}"${g.store?` (from ${g.store})`:""}`).join(", ") : "Empty"}
 Today has ${today.length}/${MAX_TODAY} slots. ${today.length>=MAX_TODAY?"Today is FULL.":`${MAX_TODAY-today.length} remaining.`}
 
-When the user mentions completing something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge.
+When the user explicitly says they finished or completed something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge. NEVER suggest type:complete for something the user said they didn't do, couldn't start, skipped, or hasn't done yet.
 
 A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). When the user asks you to start a timer, include a type:timer suggestion in the SUGGESTIONS block.
 
@@ -88,7 +90,7 @@ SUGGESTIONS:
 - type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
 - type:timer | minutes:15 | label:"what the timer is for"
 
-Rules: Max 3 suggestions per message. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
+Rules: Max 3 suggestions per message — EXCEPT when the user explicitly requests multiple calendar events, in which case include one type:calendar per event requested (up to 5). Never use type:replace if the new text is the same as or nearly identical to the existing task text. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
@@ -442,7 +444,7 @@ export default function Addie() {
   const idleNow     = Date.now() - lastActivity > IDLE_RESET_MS;
 
   // ── Fix 5: More vertical padding in chat input ──
-  const fieldStyle = { display:"block", width:"100%", height:46, minHeight:46, fontSize:14, padding:"0 14px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, fontFamily:"inherit", outline:"none", boxSizing:"border-box", appearance:"none", WebkitAppearance:"none" };
+  const fieldStyle = { display:"block", width:"100%", height:46, minHeight:46, fontSize:16, padding:"0 14px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, fontFamily:"inherit", outline:"none", boxSizing:"border-box", appearance:"none", WebkitAppearance:"none" };
   const btnStyle = { display:"inline-flex", alignItems:"center", justifyContent:"center", height:46, padding:"0 22px", fontSize:14, borderRadius:10, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, color:C.blueText, cursor:"pointer", fontWeight:600, flexShrink:0, boxSizing:"border-box" };
 
   const Badge = ({ children, bg, color }) => (
@@ -802,7 +804,7 @@ export default function Addie() {
         <div style={{ padding:"16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
           <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
             placeholder="Message Addie… (tap 🎤 on your keyboard to dictate)" rows={2}
-            style={{ flex:1, resize:"none", fontSize:14, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
+            style={{ flex:1, resize:"none", fontSize:16, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
             style={{ width:44, height:44, borderRadius:"50%", backgroundColor:input.trim()&&!loading?C.blue:C.bg2, cursor:input.trim()&&!loading?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color:input.trim()&&!loading?"#fff":C.text3, fontWeight:700, marginBottom:2 }}>↑</span>
