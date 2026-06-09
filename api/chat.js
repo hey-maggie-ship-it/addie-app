@@ -21,8 +21,10 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPA
 
 // Free-tier daily message cap (per user).
 const DAILY_LIMIT = parseInt(process.env.FREE_DAILY_MESSAGE_LIMIT || "25", 10);
-// Reject oversized payloads (sum of message text) to prevent cost-abuse.
-const MAX_INPUT_CHARS = 24000;
+// Reject a single oversized message (the real cost-abuse vector) — generous.
+const MAX_MESSAGE_CHARS = 16000;
+// Sanity ceiling for a runaway-long conversation; normal chats won't hit it.
+const MAX_CONVERSATION_CHARS = 200000;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -61,13 +63,19 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "No messages provided." });
     }
 
-    // Guard against oversized / abusive payloads.
+    // Guard against a single oversized message (the actual cost-abuse vector).
+    const latest = messages[messages.length - 1];
+    const latestLen = typeof latest?.content === "string" ? latest.content.length : 0;
+    if (latestLen > MAX_MESSAGE_CHARS) {
+      return res.status(413).json({ error: "That message is too long — try trimming it down." });
+    }
+    // Sanity ceiling for a runaway-long conversation (very high; normal chats won't hit it).
     const totalChars = messages.reduce(
       (n, m) => n + (typeof m.content === "string" ? m.content.length : 0),
       0
     );
-    if (totalChars > MAX_INPUT_CHARS) {
-      return res.status(413).json({ error: "That message is too long — try trimming it down." });
+    if (totalChars > MAX_CONVERSATION_CHARS) {
+      return res.status(413).json({ error: 'This conversation has gotten very long — tap "New session" to start fresh.' });
     }
 
     // ── Per-user daily rate limit (atomic + tamper-proof via SECURITY DEFINER RPC) ──
