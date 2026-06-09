@@ -73,7 +73,12 @@ function buildProfileBlock(profile) {
 }
 
 function buildSystemPrompt(tasks, grocery, profile) {
-  const todayDate = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const now = new Date();
+  const fmtFull = (d) => d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const fmtISO  = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate()+1);
+  const todayDate = `${fmtFull(now)} (${fmtISO(now)})`;
+  const tomorrowDate = `${fmtFull(tomorrow)} (${fmtISO(tomorrow)})`;
   const today  = tasks.filter(t => t.bucket === "today"  && !t.done);
   const week   = tasks.filter(t => t.bucket === "week"   && !t.done);
   const parked = tasks.filter(t => t.bucket === "parked" && !t.done);
@@ -83,15 +88,15 @@ function buildSystemPrompt(tasks, grocery, profile) {
 
   return `You are Addie, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Not a task manager, not a therapist.
 
-Today is ${todayDate}.${buildProfileBlock(profile)}
+Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}
 
 Be DECISIVE when someone needs an answer or is ready to act — give your best take in one shot rather than dragging a question across many turns. One clarifying question is fine; three is too many.
 
 But READ THE MOMENT — decisiveness is not the same as being blunt or transactional. When someone is struggling, venting, frustrated, or overwhelmed, slow down and meet them there first: acknowledge how it feels, dig a little deeper to understand what's really going on, and normalize it ("this is really common — a lot of people hit exactly this wall"). Then, when they're ready, help break it into a small, manageable next step. The empathy and the decisiveness work together: understand first, then point the way. Don't rush a struggling person toward a solution before they feel heard, and don't over-explain to someone who just wants a quick answer.
 
-You already know today's date — it is stated above. Never ask the user what today's date is.
+LIVE DATES: You know today's and tomorrow's date (stated above). You can and MUST compute any relative date yourself from today — "tomorrow," "this Friday," "next Monday," "in 3 days," "next week," "end of the month," etc. NEVER ask the user what today's, tomorrow's, or any relative date is — you have everything needed to work it out. When emitting a calendar date, resolve it to a concrete ISO date (YYYY-MM-DD) using today as the anchor.
 
-NEVER guess dates, times, prices, or facts you don't know. If a date/time isn't stated, ASK rather than fabricate. "Memorial Day" is the last Monday of May; "July 4th" is July 4th; never substitute one for another. If unsure, say so or ask.
+NEVER guess times, prices, or facts you don't know (these are different from dates, which you CAN compute). "Memorial Day" is the last Monday of May; "July 4th" is July 4th; never substitute one for another. If a time or fact isn't stated and you can't derive it, ask rather than fabricate.
 
 CURRENT TASK MEMORY:
 Today (max 3): ${today.length ? today.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}`).join(", ") : "empty"}
@@ -102,7 +107,7 @@ Done today: ${done.length ? done.map(t=>`"${t.text}"`).join(", ") : "none"}
 TASKS WITH PENDING NEXT STEPS:
 ${withNext.length ? withNext.map(t=>`- "${t.text}" → next: "${t.nextStep}" [id:${t.id}]`).join("\n") : "none"}
 
-GROCERY: ${gItems.length ? gItems.map(g=>`"${g.text}"${g.store?` (from ${g.store})`:""}`).join(", ") : "Empty"}
+GROCERY: ${gItems.length ? gItems.map(g=>`"${g.text}"${g.store?` (from ${g.store})`:""} [id:${g.id}]`).join(", ") : "Empty"}
 Today has ${today.length}/${MAX_TODAY} slots. ${today.length>=MAX_TODAY?"Today is FULL.":`${MAX_TODAY-today.length} remaining.`}
 
 When the user explicitly says they finished or completed something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge. NEVER suggest type:complete for something the user said they didn't do, couldn't start, skipped, or hasn't done yet.
@@ -113,6 +118,8 @@ A focus timer exists. When someone's stuck starting something, casually offer ti
 
 CALENDAR HANDOFF: When a specific date+time emerges, include a type:calendar suggestion. Only concrete date+time — not vague stuff like "later today". Always use the current year (${new Date().getFullYear()}) in the when field unless the user explicitly says otherwise.
 
+UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'") — UPDATE the existing item by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item.
+
 SUGGESTION FORMAT:
 
 SUGGESTIONS:
@@ -121,14 +128,17 @@ SUGGESTIONS:
 - type:task | bucket:parked | "task text"
 - type:grocery | "item name"
 - type:grocery | "item name" | store:"store or place"
-- type:replace | id:TASK_ID | "concrete first step"
-- type:replace | id:TASK_ID | "concrete first step" | next:"what comes after"
+- type:grocery-replace | id:GROCERY_ID | "new item name"
+- type:grocery-replace | id:GROCERY_ID | "new item name" | store:"store or place"
+- type:grocery-remove | id:GROCERY_ID
+- type:replace | id:TASK_ID | "updated task text"
+- type:replace | id:TASK_ID | "updated task text" | next:"what comes after"
 - type:nextstep | id:TASK_ID | "next step text"
 - type:complete | id:TASK_ID
 - type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
 - type:timer | minutes:15 | label:"what the timer is for"
 
-Rules: Max 3 suggestions per message — EXCEPT when the user explicitly requests multiple calendar events, in which case include one type:calendar per event requested (up to 5). Never use type:replace if the new text is the same as or nearly identical to the existing task text. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
+Rules: Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
@@ -390,6 +400,12 @@ export default function Addie() {
       if (cal) return { id: "s"+Date.now()+i, type: "calendar", title: cal[1], when: cal[2], minutes: cal[3] ? parseInt(cal[3]) : 60 };
       const comp = l.match(/- type:complete \| id:(\S+)/);
       if (comp) return { id: "s"+Date.now()+i, type: "complete", targetId: comp[1] };
+      const grm = l.match(/- type:grocery-remove \| id:(\S+)/);
+      if (grm) return { id: "s"+Date.now()+i, type: "grocery-remove", targetId: grm[1] };
+      const grs = l.match(/- type:grocery-replace \| id:(\S+) \| "(.+)" \| store:"(.+)"/);
+      if (grs) return { id: "s"+Date.now()+i, type: "grocery-replace", targetId: grs[1], text: grs[2], store: grs[3] };
+      const grp = l.match(/- type:grocery-replace \| id:(\S+) \| "(.+)"/);
+      if (grp) return { id: "s"+Date.now()+i, type: "grocery-replace", targetId: grp[1], text: grp[2] };
       const gs = l.match(/- type:grocery \| "(.+)" \| store:"(.+)"/);
       if (gs) return { id: "s"+Date.now()+i, type: "grocery", text: gs[1], store: gs[2] };
       const g = l.match(/- type:grocery \| "(.+)"/);
@@ -429,7 +445,17 @@ export default function Addie() {
 
   const confirm = (s) => {
     if (s.type === "grocery") { setGrocery(p => [...p, { id:"g"+Date.now(), text:s.text, checked:false, store:s.store||"" }]); showToast(`Added: ${s.text}`); }
-    else if (s.type === "replace") { setTasks(p => p.map(t => t.id===s.targetId ? {...t, text:s.text, nextStep:s.nextStep||t.nextStep} : t)); showToast("Task updated"); }
+    else if (s.type === "grocery-replace") {
+      const exists = grocery.some(g => g.id === s.targetId);
+      if (exists) { setGrocery(p => p.map(g => g.id===s.targetId ? {...g, text:s.text, store:s.store!==undefined?s.store:g.store} : g)); showToast("Item updated"); }
+      else { setGrocery(p => [...p, { id:"g"+Date.now(), text:s.text, checked:false, store:s.store||"" }]); showToast(`Added: ${s.text}`); }
+    }
+    else if (s.type === "grocery-remove") { setGrocery(p => p.filter(g => g.id!==s.targetId)); showToast("Item removed"); }
+    else if (s.type === "replace") {
+      const exists = tasks.some(t => t.id === s.targetId);
+      if (exists) { setTasks(p => p.map(t => t.id===s.targetId ? {...t, text:s.text, nextStep:s.nextStep||t.nextStep} : t)); showToast("Task updated"); }
+      else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = n>=MAX_TODAY?"week":"today"; setTasks(p => [...p, {id:"t"+Date.now(), text:s.text, bucket:b, nextStep:s.nextStep||"", done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
+    }
     else if (s.type === "nextstep") { setTasks(p => p.map(t => t.id===s.targetId ? {...t, nextStep:s.text} : t)); showToast("Next step saved"); }
     else if (s.type === "complete") {
       const t = tasks.find(t => t.id === s.targetId);
@@ -777,17 +803,20 @@ export default function Addie() {
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                   {pending.map(s => {
                     const bs = s.type==="grocery" ? {bg:C.greenBg,text:C.greenText,label:"Grocery"}
-                              : s.type==="replace" ? {bg:"#FEF3C7",text:"#92400E",label:"Replace"}
+                              : s.type==="grocery-replace" ? {bg:"#FEF3C7",text:"#92400E",label:"Update item"}
+                              : s.type==="grocery-remove" ? {bg:C.dangerBg,text:C.danger,label:"Remove item"}
+                              : s.type==="replace" ? {bg:"#FEF3C7",text:"#92400E",label:"Update task"}
                               : s.type==="nextstep" ? {bg:"#EDE9FE",text:"#5B21B6",label:"Next step"}
                               : s.type==="complete" ? {bg:C.greenBg,text:C.greenText,label:"Mark done"}
                               : s.type==="calendar" ? {bg:"#FEF3C7",text:"#92400E",label:"Calendar"}
                               : s.type==="timer" ? {bg:C.blueBg,text:C.blueText,label:"Timer"}
                               : BUCKET_STYLE[s.bucket];
                     const taskRef = s.type==="complete" ? tasks.find(t=>t.id===s.targetId)?.text : null;
+                    const removeRef = s.type==="grocery-remove" ? grocery.find(g=>g.id===s.targetId)?.text : null;
                     const display = s.type==="calendar" ? `${s.title} · ${fmtCalDate(s.when)}`
                                     : s.type==="timer" ? `${s.minutes} min${s.label?` · ${s.label}`:""}`
-                                    : (taskRef || s.text);
-                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="timer" ? "Start" : "Confirm";
+                                    : (taskRef || removeRef || s.text);
+                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="timer" ? "Start" : s.type==="grocery-remove" ? "Remove" : "Confirm";
                     return (
                       <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, backgroundColor:C.bg, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"10px 14px" }}>
                         <Badge bg={bs.bg} color={bs.text}>{bs.label}</Badge>
