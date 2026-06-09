@@ -2,9 +2,21 @@
 // Vercel Serverless Function — secure proxy to the Anthropic API.
 // The API key lives ONLY here (server-side) and is never sent to the browser.
 //
-// Set ANTHROPIC_KEY in your Vercel project's Environment Variables.
-// (Note: NO "VITE_" prefix — that prefix would expose it to the client.)
+// Requires a signed-in user: the browser sends the Supabase access token as
+// `Authorization: Bearer <token>`, which we verify before calling Anthropic.
+// This is also where the payments phase will later check "is this user a
+// paying subscriber?" before allowing the request.
+//
+// Env vars:
+//   ANTHROPIC_KEY            secret — never prefix with VITE_
+//   VITE_SUPABASE_URL        (also readable server-side) project URL
+//   VITE_SUPABASE_ANON_KEY   (also readable server-side) anon/public key
 // ──────────────────────────────────────────────────────────
+
+import { createClient } from "@supabase/supabase-js";
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -14,6 +26,20 @@ export default async function handler(req, res) {
   const API_KEY = process.env.ANTHROPIC_KEY;
   if (!API_KEY) {
     return res.status(500).json({ error: "Server is missing its API key." });
+  }
+
+  // ── Require a valid signed-in user ──
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return res.status(500).json({ error: "Server is missing its auth config." });
+  }
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (!token) {
+    return res.status(401).json({ error: "Please sign in." });
+  }
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data: userData, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !userData?.user) {
+    return res.status(401).json({ error: "Your session expired — please sign in again." });
   }
 
   try {

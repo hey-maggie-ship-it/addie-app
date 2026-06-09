@@ -5,6 +5,7 @@
 // ──────────────────────────────────────────────────────────
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { supabase } from "./supabaseClient";
 
 const STORAGE_KEY = "addie-app-state-v1";
 const PROFILE_KEY = "addie-profile-v1";
@@ -173,6 +174,14 @@ export default function Addie() {
   const [onboarded, setOnboarded] = useState(true);      // assume true until hydration says otherwise
   const [onboardDraft, setOnboardDraft] = useState({ style: "", pattern: "", context: "" });
   const [showSettings, setShowSettings] = useState(false);
+  // ── Auth + cloud sync ──
+  const [session, setSession] = useState(null);     // Supabase session, or null when signed out
+  const [authLoading, setAuthLoading] = useState(true);
+  const [cloudLoaded, setCloudLoaded] = useState(false); // true once this user's row is fetched
+  const [authEmail, setAuthEmail] = useState("");
+  const [authSent, setAuthSent] = useState(false);  // magic link sent → show "check your email"
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
@@ -243,6 +252,95 @@ export default function Addie() {
     if (!hydrated) return;
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity })); } catch {}
   }, [tasks, grocery, messages, lastActivity, hydrated]);
+
+  // ── Auth: track the Supabase session ──
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      setAuthLoading(false);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // ── Cloud load: when a user signs in, pull their data from Supabase. ──
+  // If they have no cloud row yet (first sign-in), migrate whatever is in
+  // localStorage up to the cloud once, then treat the cloud as the source of truth.
+  useEffect(() => {
+    if (!session) { setCloudLoaded(false); return; }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("user_data")
+        .select("tasks, grocery, profile")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      if (cancelled) return;
+
+      if (error) {
+        // Network/permission issue — fall back to whatever loaded from localStorage
+        // so the app still works offline. We'll sync again on the next change.
+        showToast("Couldn't reach the cloud — working offline");
+        setCloudLoaded(true);
+        return;
+      }
+
+      if (data) {
+        // Existing account: cloud is authoritative.
+        setTasks(Array.isArray(data.tasks) ? data.tasks : []);
+        setGrocery(Array.isArray(data.grocery) ? data.grocery : []);
+        if (data.profile) { setProfile(data.profile); setOnboarded(true); }
+        else { setProfile(null); setOnboarded(false); }
+      } else {
+        // First sign-in for this account: migrate current local state up.
+        await supabase.from("user_data").upsert({
+          user_id: session.user.id,
+          tasks, grocery, profile,
+          updated_at: new Date().toISOString(),
+        });
+      }
+      setCloudLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [session?.user?.id]);
+
+  // ── Cloud save: push tasks/grocery/profile up whenever they change. ──
+  // Debounced so rapid edits collapse into one write. messages stay local.
+  useEffect(() => {
+    if (!session || !cloudLoaded) return;
+    const t = setTimeout(() => {
+      supabase.from("user_data").upsert({
+        user_id: session.user.id,
+        tasks, grocery, profile,
+        updated_at: new Date().toISOString(),
+      }).then(({ error }) => { if (error) showToast("Sync failed — changes saved on this device"); });
+    }, 700);
+    return () => clearTimeout(t);
+  }, [tasks, grocery, profile, session, cloudLoaded]);
+
+  const sendMagicLink = async () => {
+    const email = authEmail.trim();
+    if (!email || authBusy) return;
+    setAuthBusy(true); setAuthError("");
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    setAuthBusy(false);
+    if (error) setAuthError(error.message);
+    else setAuthSent(true);
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setCloudLoaded(false);
+    setTasks([]); setGrocery([]); setMessages([]); setProfile(null);
+    setStarted(false); setPending([]); setAuthSent(false); setAuthEmail("");
+  };
 
   // ── Fix 1: Smart chat scroll — bottom if mid-convo, top if idle ──
   useEffect(() => {
@@ -431,10 +529,18 @@ export default function Addie() {
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile), messages: next.map(m => ({ role: m.role, content: m.content })) }),
       });
       const data = await res.json();
+      if (!res.ok || data.error) {
+        setMessages([...next, { role: "assistant", content: data.error || "Something went wrong.", id: "e"+Date.now() }]);
+        setLoading(false);
+        return;
+      }
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
       const { clean, suggestions } = parseSuggestions(raw);
       setMessages([...next, { role: "assistant", content: clean, id: "a"+Date.now() }]);
@@ -615,7 +721,49 @@ export default function Addie() {
     );
   };
 
-  if (!hydrated) return <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"system-ui,sans-serif", color:C.text3 }}>Loading your space…</div>;
+  const loadingScreen = (msg) => <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"system-ui,sans-serif", color:C.text3 }}>{msg}</div>;
+
+  if (authLoading) return loadingScreen("Loading…");
+
+  // ── Not signed in → passwordless (magic-link) sign-in ──
+  if (!session) return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg }}>
+      <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"center", padding:"24px 26px", maxWidth:380, width:"100%", margin:"0 auto", boxSizing:"border-box" }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ width:54, height:54, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 14px", fontSize:27 }}>🧠</div>
+          <h2 style={{ margin:"0 0 6px", fontSize:23, fontWeight:700, color:C.text }}>Welcome to Addie</h2>
+          <p style={{ margin:"0 auto", fontSize:14, color:C.text2, lineHeight:1.5, maxWidth:300 }}>Sign in to keep your tasks and lists in sync across your devices.</p>
+        </div>
+
+        {authSent ? (
+          <div style={{ textAlign:"center" }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>📬</div>
+            <p style={{ margin:"0 0 8px", fontSize:15.5, fontWeight:600, color:C.text }}>Check your email</p>
+            <p style={{ margin:"0 0 22px", fontSize:13.5, color:C.text2, lineHeight:1.5 }}>We sent a sign-in link to <strong>{authEmail.trim()}</strong>. Tap it on this device to continue.</p>
+            <span role="button" onClick={() => { setAuthSent(false); setAuthError(""); }} style={{ fontSize:13.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Use a different email</span>
+          </div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <input
+              type="email" inputMode="email" autoComplete="email" value={authEmail}
+              onChange={e => setAuthEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && sendMagicLink()}
+              placeholder="you@example.com"
+              style={fieldStyle}
+            />
+            {authError && <p style={{ margin:0, fontSize:12.5, color:C.danger }}>{authError}</p>}
+            <span role="button" onClick={sendMagicLink}
+              style={{ textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor: authBusy ? C.text3 : C.blue, borderRadius:12, padding:"14px 0", cursor: authBusy ? "default" : "pointer" }}>
+              {authBusy ? "Sending…" : "Send me a sign-in link"}
+            </span>
+            <p style={{ margin:"6px 0 0", fontSize:11.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>No password needed — we'll email you a secure link.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  if (!hydrated || !cloudLoaded) return loadingScreen("Loading your space…");
 
   // Shared profile fields, used by both onboarding and Settings
   const profileFields = () => (
@@ -1006,11 +1154,13 @@ export default function Addie() {
         })}
       </div>
 
-      <div style={{ padding:"8px 20px calc(8px + env(safe-area-inset-bottom))", borderTop:`1px solid ${C.borderLt}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0 }}>
-        <span style={{ fontSize:11, color:C.text3 }}>Saved on this device</span>
-        <span style={{ display:"flex", gap:14 }}>
+      <div style={{ padding:"8px 20px calc(8px + env(safe-area-inset-bottom))", borderTop:`1px solid ${C.borderLt}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0, gap:10 }}>
+        <span style={{ fontSize:11, color:C.text3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }} title={session?.user?.email || ""}>
+          {session?.user?.email ? `☁ ${session.user.email}` : "Synced to your account"}
+        </span>
+        <span style={{ display:"flex", gap:14, flexShrink:0 }}>
           <span onClick={openSettings} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Preferences</span>
-          <span onClick={resetAll} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Reset everything</span>
+          <span onClick={signOut} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Sign out</span>
         </span>
       </div>
 
