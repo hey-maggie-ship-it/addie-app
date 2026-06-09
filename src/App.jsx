@@ -1,11 +1,11 @@
 // ──────────────────────────────────────────────────────────
 // ADDIE — A thinking partner for overwhelmed high achievers · v3
-// Set VITE_ANTHROPIC_KEY in your Vercel environment variables.
+// The Anthropic API key now lives server-side in /api/chat.js.
+// Set ANTHROPIC_KEY (NOT VITE_ANTHROPIC_KEY) in your Vercel env vars.
 // ──────────────────────────────────────────────────────────
 
 import { useState, useRef, useEffect, useCallback } from "react";
 
-const API_KEY = import.meta.env.VITE_ANTHROPIC_KEY || "";
 const STORAGE_KEY = "addie-app-state-v1";
 const PROFILE_KEY = "addie-profile-v1";
 const IDLE_RESET_MS = 60 * 60 * 1000;
@@ -429,10 +429,10 @@ export default function Addie() {
     setMessages(next); setInput(""); setLoading(true); setStarted(true); setPending([]); setLastActivity(Date.now());
     if (taRef.current) { taRef.current.style.height = "auto"; }
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, system: buildSystemPrompt(tasks, grocery, profile), messages: next.map(m => ({ role: m.role, content: m.content })) }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile), messages: next.map(m => ({ role: m.role, content: m.content })) }),
       });
       const data = await res.json();
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
