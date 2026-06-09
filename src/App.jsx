@@ -9,7 +9,33 @@ import { supabase } from "./supabaseClient";
 
 const STORAGE_KEY = "addie-app-state-v1";
 const PROFILE_KEY = "addie-profile-v1";
+const MIGRATED_KEY = "addie-migrated-v1"; // which account this device has already merged its local data into
 const IDLE_RESET_MS = 60 * 60 * 1000;
+
+// Read this device's locally-stored data (the pre-accounts data, or offline cache).
+function readLocalData() {
+  let tasks = [], grocery = [], profile = null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; }
+  } catch {}
+  try {
+    const praw = window.localStorage.getItem(PROFILE_KEY);
+    if (praw) profile = JSON.parse(praw);
+  } catch {}
+  return { tasks, grocery, profile };
+}
+
+// Union two lists of {id,...} items, keeping every unique id. On id collision,
+// the "primary" list's version wins (so already-synced cloud edits aren't undone).
+function mergeById(primary = [], secondary = []) {
+  const seen = new Set((primary || []).map(i => i.id));
+  return [...(primary || []), ...(secondary || []).filter(i => !seen.has(i.id))];
+}
+
+function profileHasContent(p) {
+  return !!(p && (p.style || p.pattern || (p.context && p.context.trim())));
+}
 
 // First-launch onboarding — quick, skippable. Seeds Addie's tone; she adapts from there.
 const ONBOARD_STYLE = [
@@ -288,19 +314,43 @@ export default function Addie() {
         return;
       }
 
-      if (data) {
-        // Existing account: cloud is authoritative.
-        setTasks(Array.isArray(data.tasks) ? data.tasks : []);
-        setGrocery(Array.isArray(data.grocery) ? data.grocery : []);
-        if (data.profile) { setProfile(data.profile); setOnboarded(true); }
+      const cloudTasks   = Array.isArray(data?.tasks)   ? data.tasks   : [];
+      const cloudGrocery = Array.isArray(data?.grocery) ? data.grocery : [];
+      const cloudProfile = data?.profile || null;
+
+      // Has THIS device already contributed its local data to THIS account?
+      let alreadyMigrated = false;
+      try { alreadyMigrated = window.localStorage.getItem(MIGRATED_KEY) === session.user.id; } catch {}
+
+      if (alreadyMigrated && data) {
+        // Normal case: cloud is the source of truth for this device.
+        setTasks(cloudTasks);
+        setGrocery(cloudGrocery);
+        if (cloudProfile) { setProfile(cloudProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
       } else {
-        // First sign-in for this account: migrate current local state up.
-        await supabase.from("user_data").upsert({
+        // First time this device signs into this account → merge its local data
+        // into the cloud so nothing on this device is lost (union by id). Each
+        // device does this exactly once, then syncs normally afterward.
+        const local = readLocalData();
+        const mergedTasks   = mergeById(cloudTasks, local.tasks);
+        const mergedGrocery = mergeById(cloudGrocery, local.grocery);
+        const mergedProfile = profileHasContent(cloudProfile) ? cloudProfile
+                            : (profileHasContent(local.profile) ? local.profile : (cloudProfile || local.profile));
+
+        setTasks(mergedTasks);
+        setGrocery(mergedGrocery);
+        if (mergedProfile) { setProfile(mergedProfile); setOnboarded(true); }
+        else { setProfile(null); setOnboarded(false); }
+
+        const { error: upErr } = await supabase.from("user_data").upsert({
           user_id: session.user.id,
-          tasks, grocery, profile,
+          tasks: mergedTasks, grocery: mergedGrocery, profile: mergedProfile,
           updated_at: new Date().toISOString(),
         });
+        if (!upErr) {
+          try { window.localStorage.setItem(MIGRATED_KEY, session.user.id); } catch {}
+        }
       }
       setCloudLoaded(true);
     })();
