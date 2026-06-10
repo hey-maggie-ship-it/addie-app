@@ -37,6 +37,12 @@ function profileHasContent(p) {
   return !!(p && (p.style || p.pattern || (p.context && p.context.trim())));
 }
 
+// Stable string snapshot of the synced data, used to dedupe saves and to
+// ignore the echo of our own writes coming back over Realtime.
+function snapshotJson(tasks, grocery, profile) {
+  return JSON.stringify({ tasks: tasks || [], grocery: grocery || [], profile: profile || null });
+}
+
 // First-launch onboarding — quick, skippable. Seeds Addie's tone; she adapts from there.
 const ONBOARD_STYLE = [
   { value: "direct", label: "Cut to the chase", hint: "Give me the answer, skip the preamble" },
@@ -216,6 +222,8 @@ export default function Addie() {
   const wakeLockRef = useRef(null);
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
+  // JSON of the last data we synced (saved or received), to dedupe + ignore echoes.
+  const lastSyncedRef = useRef(null);
 
   // Detect platform for backup alarm link
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -328,6 +336,7 @@ export default function Addie() {
         setGrocery(cloudGrocery);
         if (cloudProfile) { setProfile(cloudProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
+        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile);
       } else {
         // First time this device signs into this account → merge its local data
         // into the cloud so nothing on this device is lost (union by id). Each
@@ -351,6 +360,7 @@ export default function Addie() {
         if (!upErr) {
           try { window.localStorage.setItem(MIGRATED_KEY, session.user.id); } catch {}
         }
+        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile);
       }
       setCloudLoaded(true);
     })();
@@ -367,6 +377,9 @@ export default function Addie() {
   const saveToCloud = useCallback(() => {
     if (!session || !cloudLoaded) return;
     const d = latestRef.current;
+    const json = snapshotJson(d.tasks, d.grocery, d.profile);
+    if (json === lastSyncedRef.current) return; // nothing changed since last sync (incl. our own echoes)
+    lastSyncedRef.current = json;
     supabase.from("user_data").upsert({
       user_id: session.user.id,
       tasks: d.tasks, grocery: d.grocery, profile: d.profile,
@@ -396,6 +409,34 @@ export default function Addie() {
       window.removeEventListener("pagehide", saveToCloud);
     };
   }, [saveToCloud]);
+
+  // ── Live sync: apply changes pushed from this user's OTHER devices in real time. ──
+  useEffect(() => {
+    if (!session || !cloudLoaded) return;
+    const channel = supabase
+      .channel(`user_data:${session.user.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_data", filter: `user_id=eq.${session.user.id}` },
+        (payload) => {
+          const row = payload.new;
+          if (!row) return;
+          const rTasks   = Array.isArray(row.tasks)   ? row.tasks   : [];
+          const rGrocery = Array.isArray(row.grocery) ? row.grocery : [];
+          const rProfile = row.profile || null;
+          const incoming = snapshotJson(rTasks, rGrocery, rProfile);
+          // Ignore our own echo / anything identical to what we already have.
+          if (incoming === lastSyncedRef.current) return;
+          lastSyncedRef.current = incoming;
+          setTasks(rTasks);
+          setGrocery(rGrocery);
+          if (rProfile) { setProfile(rProfile); setOnboarded(true); }
+          else { setProfile(null); setOnboarded(false); }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user?.id, cloudLoaded]);
 
   const sendMagicLink = async () => {
     const email = authEmail.trim();
