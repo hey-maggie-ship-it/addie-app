@@ -795,7 +795,10 @@ export default function Addie() {
 
   // ── Fix 2: Enter = line break. Send is button only. ──
   const handleKey = (e) => {
-    // No special handling — let Enter be a normal line break
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      sendMessage(input);
+    }
   };
 
   const fmtText = (t) => t.split(/(\*\*[^*]+\*\*)/).map((p,i) => p.startsWith("**")&&p.endsWith("**") ? <strong key={i} style={{fontWeight:600}}>{p.slice(2,-2)}</strong> : p);
@@ -1386,7 +1389,7 @@ export default function Addie() {
       {tab==="chat" && (
         <div style={{ padding:"16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
           <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
-            placeholder="Message Addie… (tap 🎤 on your keyboard to dictate)" rows={2}
+            placeholder="Message Addie… (Ctrl+Enter to send)" rows={2}
             style={{ flex:1, resize:"none", fontSize:16, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
