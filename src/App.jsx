@@ -358,18 +358,45 @@ export default function Addie() {
   }, [session?.user?.id]);
 
   // ── Cloud save: push tasks/grocery/profile up whenever they change. ──
-  // Debounced so rapid edits collapse into one write. messages stay local.
+  // Debounced to batch rapid edits, but ALSO flushed immediately when the app
+  // is backgrounded — otherwise a mobile browser can freeze/kill the pending
+  // timer before it fires and silently lose the write.
+  const saveDataRef = useRef({ tasks, grocery, profile });
+  const saveTimerRef = useRef(null);
+  const pendingSaveRef = useRef(false);
+
+  useEffect(() => { saveDataRef.current = { tasks, grocery, profile }; }, [tasks, grocery, profile]);
+
+  const flushSave = useCallback(() => {
+    if (!session || !cloudLoaded || !pendingSaveRef.current) return;
+    pendingSaveRef.current = false;
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    const d = saveDataRef.current;
+    supabase.from("user_data").upsert({
+      user_id: session.user.id,
+      tasks: d.tasks, grocery: d.grocery, profile: d.profile,
+      updated_at: new Date().toISOString(),
+    }).then(({ error }) => { if (error) showToast("Sync failed — changes saved on this device"); });
+  }, [session, cloudLoaded]);
+
   useEffect(() => {
     if (!session || !cloudLoaded) return;
-    const t = setTimeout(() => {
-      supabase.from("user_data").upsert({
-        user_id: session.user.id,
-        tasks, grocery, profile,
-        updated_at: new Date().toISOString(),
-      }).then(({ error }) => { if (error) showToast("Sync failed — changes saved on this device"); });
-    }, 700);
-    return () => clearTimeout(t);
-  }, [tasks, grocery, profile, session, cloudLoaded]);
+    pendingSaveRef.current = true;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(flushSave, 400);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [tasks, grocery, profile, session, cloudLoaded, flushSave]);
+
+  // Mobile-safe: persist any pending change the instant the app is hidden/closed.
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === "hidden") flushSave(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", flushSave);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", flushSave);
+    };
+  }, [flushSave]);
 
   const sendMagicLink = async () => {
     const email = authEmail.trim();
