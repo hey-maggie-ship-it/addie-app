@@ -470,7 +470,11 @@ export default function Addie() {
   };
 
   const startCheckout = async (priceId) => {
-    if (!priceId || upgradeBusy) return;
+    if (upgradeBusy) return;
+    if (!priceId) {
+      showToast("Checkout isn't configured yet — check VITE_STRIPE price ID env vars");
+      return;
+    }
     setUpgradeBusy(true);
     try {
       const res = await fetch("/api/stripe-checkout", {
@@ -480,7 +484,7 @@ export default function Addie() {
       });
       const data = await res.json();
       if (data.url) { window.location.href = data.url; return; }
-      showToast("Something went wrong — please try again");
+      showToast(data.error || "Something went wrong — please try again");
     } catch { showToast("Connection error — please try again"); }
     setUpgradeBusy(false);
   };
@@ -693,8 +697,8 @@ export default function Addie() {
       const data = await res.json();
       if (!res.ok || data.error) {
         if (res.status === 429 && data.upgrade) {
-          setMessages([...next, { role: "assistant", content: data.error, id: "e"+Date.now() }]);
-          setShowUpgrade(true);
+          setMessages([...next, { role: "assistant", content: data.error + " Upgrade for unlimited.", id: "e"+Date.now() }]);
+          setTimeout(() => setShowUpgrade(true), 1200);
           setLoading(false);
           return;
         }
@@ -1072,8 +1076,8 @@ export default function Addie() {
             style={{ backgroundColor:C.bg, borderRadius:"20px 20px 0 0", padding:"28px 24px calc(28px + env(safe-area-inset-bottom))", width:"100%", maxWidth:520, boxShadow:"0 -4px 40px rgba(0,0,0,0.15)" }}>
             <div style={{ textAlign:"center", marginBottom:24 }}>
               <div style={{ fontSize:32, marginBottom:8 }}>✦</div>
-              <h2 style={{ margin:"0 0 6px", fontSize:21, fontWeight:700, color:C.text }}>Upgrade to Addie Pro</h2>
-              <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Unlimited conversations, plus every new feature we ship.</p>
+              <h2 style={{ margin:"0 0 6px", fontSize:21, fontWeight:700, color:C.text }}>You've hit today's limit</h2>
+              <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Upgrade to Addie Pro for unlimited conversations and every new feature we ship.</p>
             </div>
 
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
