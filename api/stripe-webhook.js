@@ -46,6 +46,12 @@ export default async function handler(req, res) {
     return priceId === annualPriceId ? "annual" : "monthly";
   };
 
+  const periodEnd = (sub) => {
+    // current_period_end moved in newer Stripe API versions
+    const ts = sub.current_period_end ?? sub.billing_cycle_anchor ?? null;
+    return ts ? new Date(ts * 1000).toISOString() : null;
+  };
+
   try {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
@@ -61,7 +67,7 @@ export default async function handler(req, res) {
         stripe_subscription_id: session.subscription,
         status: sub.status,
         plan: planFor(sub),
-        current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+        current_period_end: periodEnd(sub),
         updated_at: new Date().toISOString(),
       });
       if (dbErr) console.error("Supabase upsert error:", dbErr.message);
@@ -73,7 +79,7 @@ export default async function handler(req, res) {
       await supabase.from("subscriptions").update({
         status: sub.status,
         plan: planFor(sub),
-        current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+        current_period_end: periodEnd(sub),
         updated_at: new Date().toISOString(),
       }).eq("stripe_subscription_id", sub.id);
     }
