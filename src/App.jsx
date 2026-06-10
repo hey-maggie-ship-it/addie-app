@@ -697,8 +697,7 @@ export default function Addie() {
       const data = await res.json();
       if (!res.ok || data.error) {
         if (res.status === 429 && data.upgrade) {
-          setMessages([...next, { role: "assistant", content: data.error + " Upgrade for unlimited.", id: "e"+Date.now() }]);
-          setTimeout(() => setShowUpgrade(true), 1200);
+          setMessages([...next, { role: "assistant", content: data.error, id: "e"+Date.now(), upgrade: true }]);
           setLoading(false);
           return;
         }
@@ -1182,8 +1181,23 @@ export default function Addie() {
               const u = m.role==="user";
               const grp = messages[i-1] && messages[i-1].role===m.role;
               return (
-                <div key={m.id} style={{ display:"flex", justifyContent:u?"flex-end":"flex-start", marginTop:grp?3:12 }}>
+                <div key={m.id} style={{ display:"flex", flexDirection:"column", alignItems:u?"flex-end":"flex-start", marginTop:grp?3:12 }}>
                   <div style={{ maxWidth:"76%", backgroundColor:u?C.blue:"#E9E9EB", color:u?"#fff":"#000", borderRadius:18, padding:"9px 14px", fontSize:14.5, lineHeight:1.5 }}>{renderContent(m.content)}</div>
+                  {m.upgrade && (
+                    <div style={{ maxWidth:"88%", width:"100%", marginTop:8, borderRadius:14, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, padding:"14px 16px" }}>
+                      <p style={{ margin:"0 0 10px", fontSize:13.5, fontWeight:600, color:C.blueText }}>Upgrade to Addie Pro for unlimited</p>
+                      <div style={{ display:"flex", gap:8 }}>
+                        <span role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_ANNUAL_PRICE_ID)}
+                          style={{ flex:1, textAlign:"center", fontSize:13, fontWeight:700, color:"#fff", backgroundColor:upgradeBusy?C.text3:C.blue, borderRadius:8, padding:"9px 0", cursor:upgradeBusy?"default":"pointer" }}>
+                          {upgradeBusy ? "…" : "$48 / year"}
+                        </span>
+                        <span role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_MONTHLY_PRICE_ID)}
+                          style={{ flex:1, textAlign:"center", fontSize:13, fontWeight:600, color:C.blueText, backgroundColor:C.bg, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"9px 0", cursor:upgradeBusy?"default":"pointer" }}>
+                          {upgradeBusy ? "…" : "$5 / month"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
