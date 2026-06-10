@@ -78,18 +78,29 @@ export default async function handler(req, res) {
       return res.status(413).json({ error: 'This conversation has gotten very long — tap "New session" to start fresh.' });
     }
 
+    // ── Check subscription — active subscribers bypass the daily message limit ──
+    const { data: subData } = await supabase
+      .from("subscriptions")
+      .select("status")
+      .eq("user_id", userData.user.id)
+      .maybeSingle();
+    const isSubscribed = subData?.status === "active";
+
     // ── Per-user daily rate limit (atomic + tamper-proof via SECURITY DEFINER RPC) ──
     // Fails OPEN if the metering function isn't installed yet, so deploying this
     // code before running supabase/metering.sql won't break chat.
-    const { data: usage, error: usageError } = await supabase.rpc("record_message", {
-      daily_limit: DAILY_LIMIT,
-    });
-    if (usageError) {
-      console.error("Usage metering unavailable (failing open):", usageError.message);
-    } else if (usage && usage.allowed === false) {
-      return res.status(429).json({
-        error: `You've reached today's limit of ${usage.limit} messages. It resets tomorrow.`,
+    if (!isSubscribed) {
+      const { data: usage, error: usageError } = await supabase.rpc("record_message", {
+        daily_limit: DAILY_LIMIT,
       });
+      if (usageError) {
+        console.error("Usage metering unavailable (failing open):", usageError.message);
+      } else if (usage && usage.allowed === false) {
+        return res.status(429).json({
+          error: `You've used all ${usage.limit} of today's free messages.`,
+          upgrade: true,
+        });
+      }
     }
 
     const upstream = await fetch("https://api.anthropic.com/v1/messages", {

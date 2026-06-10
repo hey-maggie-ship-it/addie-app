@@ -214,6 +214,9 @@ export default function Addie() {
   const [authSent, setAuthSent] = useState(false);  // magic link sent → show "check your email"
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [subscription, setSubscription] = useState(null); // null=unknown, 'free', 'active'
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
@@ -280,6 +283,12 @@ export default function Addie() {
     } catch { setOnboarded(false); }
     if ("Notification" in window) setNotifPermission(Notification.permission);
     setHydrated(true);
+
+    // Handle return from Stripe Checkout
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("payment") === "success" || params.get("payment") === "canceled") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -307,11 +316,10 @@ export default function Addie() {
     if (!session) { setCloudLoaded(false); return; }
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
-        .from("user_data")
-        .select("tasks, grocery, profile")
-        .eq("user_id", session.user.id)
-        .maybeSingle();
+      const [{ data, error }, { data: subData }] = await Promise.all([
+        supabase.from("user_data").select("tasks, grocery, profile").eq("user_id", session.user.id).maybeSingle(),
+        supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle(),
+      ]);
       if (cancelled) return;
 
       if (error) {
@@ -362,6 +370,7 @@ export default function Addie() {
         }
         lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile);
       }
+      setSubscription(subData?.status === "active" ? "active" : "free");
       setCloudLoaded(true);
     })();
     return () => { cancelled = true; };
@@ -455,8 +464,37 @@ export default function Addie() {
     await supabase.auth.signOut();
     setSession(null);
     setCloudLoaded(false);
+    setSubscription(null);
     setTasks([]); setGrocery([]); setMessages([]); setProfile(null);
     setStarted(false); setPending([]); setAuthSent(false); setAuthEmail("");
+  };
+
+  const startCheckout = async (priceId) => {
+    if (!priceId || upgradeBusy) return;
+    setUpgradeBusy(true);
+    try {
+      const res = await fetch("/api/stripe-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ priceId }),
+      });
+      const data = await res.json();
+      if (data.url) { window.location.href = data.url; return; }
+      showToast("Something went wrong — please try again");
+    } catch { showToast("Connection error — please try again"); }
+    setUpgradeBusy(false);
+  };
+
+  const openBillingPortal = async () => {
+    try {
+      const res = await fetch("/api/stripe-portal", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json();
+      if (data.url) { window.open(data.url, "_blank"); return; }
+      showToast("Could not open billing portal — try again");
+    } catch { showToast("Connection error — please try again"); }
   };
 
   // ── Fix 1: Smart chat scroll — bottom if mid-convo, top if idle ──
@@ -654,6 +692,12 @@ export default function Addie() {
       });
       const data = await res.json();
       if (!res.ok || data.error) {
+        if (res.status === 429 && data.upgrade) {
+          setMessages([...next, { role: "assistant", content: data.error, id: "e"+Date.now() }]);
+          setShowUpgrade(true);
+          setLoading(false);
+          return;
+        }
         setMessages([...next, { role: "assistant", content: data.error || "Something went wrong.", id: "e"+Date.now() }]);
         setLoading(false);
         return;
@@ -965,6 +1009,36 @@ export default function Addie() {
           <div style={{ flex:1, overflowY:"auto", padding:"22px" }}>
             <p style={{ margin:"0 0 20px", fontSize:13.5, color:C.text2, lineHeight:1.5 }}>How Addie talks to you. She'll still adjust in the moment if you ask her to.</p>
             {profileFields()}
+            <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
+              <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Plan</p>
+              {subscription === "active" ? (
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg }}>
+                  <div>
+                    <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:700, color:C.blueText }}>✦ Addie Pro</p>
+                    <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>Unlimited messages</p>
+                  </div>
+                  <span role="button" onClick={openBillingPortal}
+                    style={{ fontSize:12.5, color:C.blueText, fontWeight:600, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"6px 14px", cursor:"pointer", backgroundColor:C.bg }}>
+                    Manage
+                  </span>
+                </div>
+              ) : (
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2 }}>
+                  <div>
+                    <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Free</p>
+                    <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>25 messages / day</p>
+                  </div>
+                  <span role="button" onClick={() => { setShowSettings(false); setShowUpgrade(true); }}
+                    style={{ fontSize:12.5, color:"#fff", fontWeight:700, backgroundColor:C.blue, borderRadius:8, padding:"7px 16px", cursor:"pointer" }}>
+                    Upgrade
+                  </span>
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop:22, paddingTop:18, borderTop:`1.5px solid ${C.borderLt}` }}>
+              <span role="button" onClick={resetAll}
+                style={{ fontSize:13, color:C.danger, cursor:"pointer" }}>Clear all data…</span>
+            </div>
           </div>
           <div style={{ padding:"16px 22px calc(16px + env(safe-area-inset-bottom))", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, flexShrink:0 }}>
             <span role="button" onClick={() => setShowSettings(false)} style={{ fontSize:14, color:C.text2, padding:"12px 16px", cursor:"pointer", fontWeight:500 }}>Cancel</span>
@@ -987,6 +1061,54 @@ export default function Addie() {
           <button onClick={dismissTimerAlert} style={{ fontSize:18, fontWeight:700, color:C.indigo, backgroundColor:"#fff", border:"none", borderRadius:16, padding:"16px 48px", cursor:"pointer", boxShadow:"0 4px 20px rgba(0,0,0,0.2)" }}>
             Done
           </button>
+        </div>
+      )}
+
+      {/* Upgrade modal */}
+      {showUpgrade && (
+        <div style={{ position:"fixed", inset:0, zIndex:95, backgroundColor:"rgba(0,0,0,0.45)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}
+          onClick={() => setShowUpgrade(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ backgroundColor:C.bg, borderRadius:"20px 20px 0 0", padding:"28px 24px calc(28px + env(safe-area-inset-bottom))", width:"100%", maxWidth:520, boxShadow:"0 -4px 40px rgba(0,0,0,0.15)" }}>
+            <div style={{ textAlign:"center", marginBottom:24 }}>
+              <div style={{ fontSize:32, marginBottom:8 }}>✦</div>
+              <h2 style={{ margin:"0 0 6px", fontSize:21, fontWeight:700, color:C.text }}>Upgrade to Addie Pro</h2>
+              <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Unlimited conversations, plus every new feature we ship.</p>
+            </div>
+
+            <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+              {/* Annual plan — shown first as recommended */}
+              <div style={{ borderRadius:14, border:`2px solid ${C.blue}`, backgroundColor:C.blueBg, padding:"16px 18px", position:"relative" }}>
+                <div style={{ position:"absolute", top:-10, left:18, fontSize:11, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:20, padding:"3px 12px" }}>BEST VALUE</div>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                  <span style={{ fontSize:15.5, fontWeight:700, color:C.text }}>Annual</span>
+                  <span style={{ fontSize:15.5, fontWeight:700, color:C.blueText }}>$48 / year</span>
+                </div>
+                <p style={{ margin:"0 0 14px", fontSize:12.5, color:C.text2 }}>$4/month · save 20% vs monthly</p>
+                <span role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_ANNUAL_PRICE_ID)}
+                  style={{ display:"block", textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor: upgradeBusy ? C.text3 : C.blue, borderRadius:10, padding:"12px 0", cursor: upgradeBusy ? "default" : "pointer" }}>
+                  {upgradeBusy ? "Redirecting…" : "Start annual plan"}
+                </span>
+              </div>
+
+              {/* Monthly plan */}
+              <div style={{ borderRadius:14, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, padding:"16px 18px" }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                  <span style={{ fontSize:15.5, fontWeight:700, color:C.text }}>Monthly</span>
+                  <span style={{ fontSize:15.5, fontWeight:700, color:C.text }}>$5 / month</span>
+                </div>
+                <p style={{ margin:"0 0 14px", fontSize:12.5, color:C.text2 }}>Cancel any time</p>
+                <span role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_MONTHLY_PRICE_ID)}
+                  style={{ display:"block", textAlign:"center", fontSize:15, fontWeight:600, color:C.blueText, backgroundColor:C.bg, border:`1.5px solid ${C.blueBorder}`, borderRadius:10, padding:"12px 0", cursor: upgradeBusy ? "default" : "pointer" }}>
+                  {upgradeBusy ? "Redirecting…" : "Start monthly plan"}
+                </span>
+              </div>
+            </div>
+
+            <p style={{ margin:0, fontSize:11.5, color:C.text3, textAlign:"center", lineHeight:1.5 }}>Secure checkout via Stripe · Cancel any time in Settings</p>
+            <span role="button" onClick={() => setShowUpgrade(false)}
+              style={{ display:"block", textAlign:"center", marginTop:16, fontSize:13.5, color:C.text2, cursor:"pointer" }}>Not now</span>
+          </div>
         </div>
       )}
 
@@ -1275,7 +1397,12 @@ export default function Addie() {
         <span style={{ fontSize:11, color:C.text3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }} title={session?.user?.email || ""}>
           {session?.user?.email ? `☁ ${session.user.email}` : "Synced to your account"}
         </span>
-        <span style={{ display:"flex", gap:14, flexShrink:0 }}>
+        <span style={{ display:"flex", gap:14, flexShrink:0, alignItems:"center" }}>
+          {subscription === "active"
+            ? <span style={{ fontSize:11, fontWeight:700, color:C.blueText, backgroundColor:C.blueBg, borderRadius:20, padding:"2px 10px" }}>✦ Pro</span>
+            : subscription === "free"
+              ? <span onClick={() => setShowUpgrade(true)} role="button" style={{ fontSize:11, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Upgrade</span>
+              : null}
           <span onClick={openSettings} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Preferences</span>
           <span onClick={signOut} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Sign out</span>
         </span>
