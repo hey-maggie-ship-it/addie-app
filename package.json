@@ -13,7 +13,8 @@
     "@supabase/supabase-js": "^2.108.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "stripe": "^22.2.0"
+    "stripe": "^22.2.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

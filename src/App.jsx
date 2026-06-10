@@ -14,16 +14,16 @@ const IDLE_RESET_MS = 60 * 60 * 1000;
 
 // Read this device's locally-stored data (the pre-accounts data, or offline cache).
 function readLocalData() {
-  let tasks = [], grocery = [], profile = null;
+  let tasks = [], grocery = [], profile = null, messages = [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; }
+    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; if (Array.isArray(s.messages)) messages = s.messages; }
   } catch {}
   try {
     const praw = window.localStorage.getItem(PROFILE_KEY);
     if (praw) profile = JSON.parse(praw);
   } catch {}
-  return { tasks, grocery, profile };
+  return { tasks, grocery, profile, messages };
 }
 
 // Union two lists of {id,...} items, keeping every unique id. On id collision,
@@ -39,8 +39,15 @@ function profileHasContent(p) {
 
 // Stable string snapshot of the synced data, used to dedupe saves and to
 // ignore the echo of our own writes coming back over Realtime.
-function snapshotJson(tasks, grocery, profile) {
-  return JSON.stringify({ tasks: tasks || [], grocery: grocery || [], profile: profile || null });
+function snapshotJson(tasks, grocery, profile, messages = [], sessions = []) {
+  return JSON.stringify({ tasks: tasks||[], grocery: grocery||[], profile: profile||null, messages: messages||[], sessions: sessions||[] });
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
 }
 
 // First-launch onboarding — quick, skippable. Seeds Addie's tone; she adapts from there.
@@ -217,12 +224,15 @@ export default function Addie() {
   const [subscription, setSubscription] = useState(null); // null=unknown, 'free', 'active'
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [viewingSession, setViewingSession] = useState(null);
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
   const bodyScrollRef = useRef(null);
   const chatScrollRef = useRef(null);
   const wakeLockRef = useRef(null);
+  const pendingPushIdRef = useRef(null);
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
   // JSON of the last data we synced (saved or received), to dedupe + ignore echoes.
@@ -266,6 +276,7 @@ export default function Addie() {
         if (s.tasks) setTasks(s.tasks);
         if (s.grocery) setGrocery(s.grocery);
         if (s.messages) setMessages(s.messages);
+        if (Array.isArray(s.sessions)) setSessions(s.sessions);
         if (s.lastActivity) setLastActivity(s.lastActivity);
         setStarted(false);
         setPastExpanded(false);
@@ -291,10 +302,22 @@ export default function Addie() {
     }
   }, []);
 
+  // Register service worker on mount (needed for background push)
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
+
+  // When user signs in and already has notification permission, resubscribe push
+  useEffect(() => {
+    if (session?.user?.id && notifPermission === "granted") subscribeToPush();
+  }, [session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, lastActivity })); } catch {}
-  }, [tasks, grocery, messages, lastActivity, hydrated]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, lastActivity })); } catch {}
+  }, [tasks, grocery, messages, sessions, lastActivity, hydrated]);
 
   // ── Auth: track the Supabase session ──
   useEffect(() => {
@@ -317,7 +340,7 @@ export default function Addie() {
     let cancelled = false;
     (async () => {
       const [{ data, error }, { data: subData }] = await Promise.all([
-        supabase.from("user_data").select("tasks, grocery, profile").eq("user_id", session.user.id).maybeSingle(),
+        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions").eq("user_id", session.user.id).maybeSingle(),
         supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle(),
       ]);
       if (cancelled) return;
@@ -330,9 +353,11 @@ export default function Addie() {
         return;
       }
 
-      const cloudTasks   = Array.isArray(data?.tasks)   ? data.tasks   : [];
-      const cloudGrocery = Array.isArray(data?.grocery) ? data.grocery : [];
-      const cloudProfile = data?.profile || null;
+      const cloudTasks    = Array.isArray(data?.tasks)    ? data.tasks    : [];
+      const cloudGrocery  = Array.isArray(data?.grocery)  ? data.grocery  : [];
+      const cloudProfile  = data?.profile || null;
+      const cloudMessages = Array.isArray(data?.messages) ? data.messages : [];
+      const cloudSessions = Array.isArray(data?.sessions) ? data.sessions : [];
 
       // Has THIS device already contributed its local data to THIS account?
       let alreadyMigrated = false;
@@ -342,33 +367,41 @@ export default function Addie() {
         // Normal case: cloud is the source of truth for this device.
         setTasks(cloudTasks);
         setGrocery(cloudGrocery);
+        if (cloudMessages.length > 0) setMessages(cloudMessages);
+        setSessions(cloudSessions);
         if (cloudProfile) { setProfile(cloudProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
-        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile);
+        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions);
       } else {
         // First time this device signs into this account → merge its local data
         // into the cloud so nothing on this device is lost (union by id). Each
         // device does this exactly once, then syncs normally afterward.
         const local = readLocalData();
-        const mergedTasks   = mergeById(cloudTasks, local.tasks);
-        const mergedGrocery = mergeById(cloudGrocery, local.grocery);
-        const mergedProfile = profileHasContent(cloudProfile) ? cloudProfile
-                            : (profileHasContent(local.profile) ? local.profile : (cloudProfile || local.profile));
+        const mergedTasks    = mergeById(cloudTasks, local.tasks);
+        const mergedGrocery  = mergeById(cloudGrocery, local.grocery);
+        const mergedProfile  = profileHasContent(cloudProfile) ? cloudProfile
+                             : (profileHasContent(local.profile) ? local.profile : (cloudProfile || local.profile));
+        // Migrate local messages to cloud on first sign-in if cloud is empty
+        const mergedMessages = cloudMessages.length > 0 ? cloudMessages : (local.messages || []);
+        const mergedSessions = cloudSessions;
 
         setTasks(mergedTasks);
         setGrocery(mergedGrocery);
+        if (mergedMessages.length > 0) setMessages(mergedMessages);
+        setSessions(mergedSessions);
         if (mergedProfile) { setProfile(mergedProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
 
         const { error: upErr } = await supabase.from("user_data").upsert({
           user_id: session.user.id,
           tasks: mergedTasks, grocery: mergedGrocery, profile: mergedProfile,
+          messages: mergedMessages, sessions: mergedSessions,
           updated_at: new Date().toISOString(),
         });
         if (!upErr) {
           try { window.localStorage.setItem(MIGRATED_KEY, session.user.id); } catch {}
         }
-        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile);
+        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile, mergedMessages, mergedSessions);
       }
       setSubscription(subData?.status === "active" ? "active" : "free");
       setCloudLoaded(true);
@@ -380,18 +413,18 @@ export default function Addie() {
   // Debounced to batch edits; ALSO flushed immediately when the app is hidden
   // (mobile browsers can freeze a pending timer and lose the write otherwise).
   // A ref holds the latest snapshot so out-of-render flushes never go stale.
-  const latestRef = useRef({ tasks, grocery, profile });
-  useEffect(() => { latestRef.current = { tasks, grocery, profile }; }, [tasks, grocery, profile]);
+  const latestRef = useRef({ tasks, grocery, profile, messages, sessions });
+  useEffect(() => { latestRef.current = { tasks, grocery, profile, messages, sessions }; }, [tasks, grocery, profile, messages, sessions]);
 
   const saveToCloud = useCallback(() => {
     if (!session || !cloudLoaded) return;
     const d = latestRef.current;
-    const json = snapshotJson(d.tasks, d.grocery, d.profile);
+    const json = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions);
     if (json === lastSyncedRef.current) return; // nothing changed since last sync (incl. our own echoes)
     lastSyncedRef.current = json;
     supabase.from("user_data").upsert({
       user_id: session.user.id,
-      tasks: d.tasks, grocery: d.grocery, profile: d.profile,
+      tasks: d.tasks, grocery: d.grocery, profile: d.profile, messages: d.messages, sessions: d.sessions,
       updated_at: new Date().toISOString(),
     }).then(({ error }) => {
       if (error) {
@@ -430,15 +463,19 @@ export default function Addie() {
         (payload) => {
           const row = payload.new;
           if (!row) return;
-          const rTasks   = Array.isArray(row.tasks)   ? row.tasks   : [];
-          const rGrocery = Array.isArray(row.grocery) ? row.grocery : [];
-          const rProfile = row.profile || null;
-          const incoming = snapshotJson(rTasks, rGrocery, rProfile);
+          const rTasks    = Array.isArray(row.tasks)    ? row.tasks    : [];
+          const rGrocery  = Array.isArray(row.grocery)  ? row.grocery  : [];
+          const rMessages = Array.isArray(row.messages) ? row.messages : [];
+          const rSessions = Array.isArray(row.sessions) ? row.sessions : [];
+          const rProfile  = row.profile || null;
+          const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions);
           // Ignore our own echo / anything identical to what we already have.
           if (incoming === lastSyncedRef.current) return;
           lastSyncedRef.current = incoming;
           setTasks(rTasks);
           setGrocery(rGrocery);
+          if (rMessages.length > 0) setMessages(rMessages);
+          setSessions(rSessions);
           if (rProfile) { setProfile(rProfile); setOnboarded(true); }
           else { setProfile(null); setOnboarded(false); }
         }
@@ -465,7 +502,7 @@ export default function Addie() {
     setSession(null);
     setCloudLoaded(false);
     setSubscription(null);
-    setTasks([]); setGrocery([]); setMessages([]); setProfile(null);
+    setTasks([]); setGrocery([]); setProfile(null);
     setStarted(false); setPending([]); setAuthSent(false); setAuthEmail("");
   };
 
@@ -571,11 +608,32 @@ export default function Addie() {
     wakeLockRef.current = null;
   };
 
+  const subscribeToPush = async () => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    if (!session) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      const sub = existing || await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(import.meta.env.VITE_VAPID_PUBLIC_KEY || ""),
+      });
+      await fetch("/api/push-subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ subscription: sub.toJSON() }),
+      });
+    } catch {}
+  };
+
   const requestNotifPermission = async () => {
     if (!("Notification" in window)) return;
     if (Notification.permission === "default") {
       const result = await Notification.requestPermission();
       setNotifPermission(result);
+      if (result === "granted") subscribeToPush();
+    } else if (Notification.permission === "granted") {
+      subscribeToPush();
     }
   };
 
@@ -612,6 +670,15 @@ export default function Addie() {
     timerEndTimeRef.current = Date.now() + min * 60 * 1000;
     setTimer({ label: label || "", total: min*60, remaining: min*60, running: true, done: false });
     setMenuId(null); setTab("timer");
+    // Schedule a server-side push as backup for when the app is backgrounded/closed
+    if (session && Notification.permission === "granted") {
+      const sendAt = new Date(timerEndTimeRef.current).toISOString();
+      fetch("/api/push-schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ title: "⏰ Time's up!", body: label || "Your focus timer has ended.", sendAt, requireInteraction: true }),
+      }).then(r => r.json()).then(d => { if (d.id) pendingPushIdRef.current = d.id; }).catch(() => {});
+    }
   };
   const pauseTimer = () => {
     clearTimeout(timerRef.current);
@@ -625,7 +692,21 @@ export default function Addie() {
       return { ...t, running: true, done: false };
     });
   };
-  const clearTimer = () => { clearTimeout(timerRef.current); timerEndTimeRef.current = null; setTimer(null); releaseWakeLock(); setTimerAlert(false); };
+  const clearTimer = () => {
+    clearTimeout(timerRef.current);
+    timerEndTimeRef.current = null;
+    setTimer(null);
+    releaseWakeLock();
+    setTimerAlert(false);
+    if (pendingPushIdRef.current && session) {
+      fetch("/api/push-cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ pushId: pendingPushIdRef.current }),
+      }).catch(() => {});
+      pendingPushIdRef.current = null;
+    }
+  };
   const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
   const calendarLink = (title, whenIso, minutes) => {
@@ -678,6 +759,21 @@ export default function Addie() {
       return null;
     }).filter(Boolean);
     return { clean: text.replace(/SUGGESTIONS:\n[\s\S]*?(?:\n\n|$)/, "").trim(), suggestions };
+  };
+
+  const startNewSession = () => {
+    if (messages.length > 0) {
+      const firstUser = messages.find(m => m.role === "user");
+      const starter = firstUser ? STARTERS.find(s => s.prompt === firstUser.content) : null;
+      const ts = parseInt((messages[0]?.id || "").replace(/^\D+/, "") || String(Date.now()), 10);
+      setSessions(prev => [{
+        id: "s" + Date.now(),
+        startedAt: new Date(isNaN(ts) ? Date.now() : ts).toISOString(),
+        label: starter?.label || null,
+        messages,
+      }, ...prev].slice(0, 30));
+    }
+    setMessages([]); setStarted(false); setPending([]);
   };
 
   const sendMessage = async (userText) => {
@@ -776,11 +872,25 @@ export default function Addie() {
     setProfile(p); persistProfile(p); setOnboarded(true);
   };
   const saveSettings = () => {
-    const p = { style: onboardDraft.style, pattern: onboardDraft.pattern, context: onboardDraft.context.trim() };
+    const p = {
+      style: onboardDraft.style,
+      pattern: onboardDraft.pattern,
+      context: onboardDraft.context.trim(),
+      reminderEnabled: onboardDraft.reminderEnabled || false,
+      reminderTime: onboardDraft.reminderTime || "09:00",
+      reminderTz: onboardDraft.reminderTz || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
     setProfile(p); persistProfile(p); setShowSettings(false); showToast("Preferences saved");
   };
   const openSettings = () => {
-    setOnboardDraft({ style: profile?.style || "", pattern: profile?.pattern || "", context: profile?.context || "" });
+    setOnboardDraft({
+      style: profile?.style || "",
+      pattern: profile?.pattern || "",
+      context: profile?.context || "",
+      reminderEnabled: profile?.reminderEnabled || false,
+      reminderTime: profile?.reminderTime || "09:00",
+      reminderTz: profile?.reminderTz || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
     setShowSettings(true);
   };
 
@@ -924,6 +1034,12 @@ export default function Addie() {
               {authBusy ? "Sending…" : "Send me a sign-in link"}
             </span>
             <p style={{ margin:"6px 0 0", fontSize:11.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>No password needed — we'll email you a secure link.</p>
+            <p style={{ margin:"10px 0 0", fontSize:11, color:C.text3, lineHeight:1.5, textAlign:"center" }}>
+              By signing in you agree to our{" "}
+              <a href="/terms.html" target="_blank" rel="noreferrer" style={{ color:C.text2, textDecoration:"underline" }}>Terms</a>
+              {" "}and{" "}
+              <a href="/privacy.html" target="_blank" rel="noreferrer" style={{ color:C.text2, textDecoration:"underline" }}>Privacy Policy</a>.
+            </p>
           </div>
         )}
       </div>
@@ -1016,6 +1132,32 @@ export default function Addie() {
             <p style={{ margin:"0 0 20px", fontSize:13.5, color:C.text2, lineHeight:1.5 }}>How Addie talks to you. She'll still adjust in the moment if you ask her to.</p>
             {profileFields()}
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
+              <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Reminders</p>
+              <div onClick={() => setOnboardDraft(d => ({ ...d, reminderEnabled: !d.reminderEnabled }))}
+                style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer", marginBottom:10 }}>
+                <div>
+                  <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Daily check-in nudge</p>
+                  <p style={{ margin:0, fontSize:12.5, color:C.text3 }}>Get a reminder to open Addie at a set time</p>
+                </div>
+                <div style={{ width:44, height:26, borderRadius:13, backgroundColor:onboardDraft.reminderEnabled?C.blue:C.border, position:"relative", transition:"background-color 0.2s", flexShrink:0 }}>
+                  <div style={{ position:"absolute", top:3, left:onboardDraft.reminderEnabled?21:3, width:20, height:20, borderRadius:"50%", backgroundColor:"#fff", transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
+                </div>
+              </div>
+              {onboardDraft.reminderEnabled && (
+                <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, marginBottom:10 }}>
+                  <p style={{ margin:0, fontSize:14, color:C.text, flex:1 }}>Remind me at</p>
+                  <input type="time" value={onboardDraft.reminderTime || "09:00"}
+                    onChange={e => setOnboardDraft(d => ({ ...d, reminderTime: e.target.value }))}
+                    style={{ fontSize:15, padding:"6px 10px", borderRadius:8, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, outline:"none" }} />
+                </div>
+              )}
+              {onboardDraft.reminderEnabled && notifPermission !== "granted" && (
+                <p style={{ margin:"0 0 6px", fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>
+                  ⚠️ You'll need to allow notifications for reminders to work — start a timer first to grant permission.
+                </p>
+              )}
+            </div>
+            <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
               <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Plan</p>
               {subscription === "active" ? (
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg }}>
@@ -1049,6 +1191,31 @@ export default function Addie() {
           <div style={{ padding:"16px 22px calc(16px + env(safe-area-inset-bottom))", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, flexShrink:0 }}>
             <span role="button" onClick={() => setShowSettings(false)} style={{ fontSize:14, color:C.text2, padding:"12px 16px", cursor:"pointer", fontWeight:500 }}>Cancel</span>
             <span role="button" onClick={saveSettings} style={{ flex:1, textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:12, padding:"13px 0", cursor:"pointer" }}>Save</span>
+          </div>
+        </div>
+      )}
+
+      {/* Session history overlay (read-only) */}
+      {viewingSession && (
+        <div style={{ position:"fixed", inset:0, zIndex:90, backgroundColor:C.bg, maxWidth:720, margin:"0 auto", display:"flex", flexDirection:"column" }}>
+          <div style={{ padding:"calc(14px + env(safe-area-inset-top)) 18px 14px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+            <span role="button" onClick={() => setViewingSession(null)} style={{ fontSize:22, color:C.text2, cursor:"pointer", lineHeight:1 }}>←</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              {viewingSession.label && <p style={{ margin:"0 0 1px", fontWeight:600, fontSize:15, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{viewingSession.label}</p>}
+              <p style={{ margin:0, fontSize:viewingSession.label?11.5:15, color:C.text2, fontWeight:viewingSession.label?400:600 }}>{fmtCalDate(viewingSession.startedAt)}</p>
+            </div>
+          </div>
+          <div style={{ flex:1, overflowY:"auto", padding:"14px 16px" }}>
+            {viewingSession.messages.map((m, i) => {
+              const u = m.role === "user";
+              const grp = viewingSession.messages[i-1] && viewingSession.messages[i-1].role === m.role;
+              return (
+                <div key={m.id||i} style={{ display:"flex", flexDirection:"column", alignItems:u?"flex-end":"flex-start", marginTop:grp?3:12 }}>
+                  <div style={{ maxWidth:"76%", backgroundColor:u?C.blue:"#E9E9EB", color:u?"#fff":"#000", borderRadius:18, padding:"9px 14px", fontSize:14.5, lineHeight:1.5 }}>{renderContent(m.content)}</div>
+                </div>
+              );
+            })}
+            <div style={{ height:24 }} />
           </div>
         </div>
       )}
@@ -1126,7 +1293,7 @@ export default function Addie() {
           <p style={{ margin:0, fontSize:11.5, color:C.text3 }}>clarity for a busy brain</p>
         </div>
         {tab==="chat" && messages.length>0 && (
-          <span onClick={() => { setMessages([]); setStarted(false); setPending([]); }} role="button"
+          <span onClick={startNewSession} role="button"
             style={{ fontSize:12, color:C.text2, backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:8, padding:"6px 12px", cursor:"pointer" }}>New session</span>
         )}
       </div>
@@ -1176,6 +1343,21 @@ export default function Addie() {
                     style={{ marginTop:18, padding:"12px 14px", backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
                     <span style={{ fontSize:13, color:C.text2 }}>↑ Continue where you left off · {messages.length} messages</span>
                     <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>Show</span>
+                  </div>
+                )}
+                {sessions.length > 0 && (
+                  <div style={{ marginTop:24 }}>
+                    <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Recent</p>
+                    {sessions.slice(0, 15).map(s => (
+                      <div key={s.id} onClick={() => setViewingSession(s)} role="button"
+                        style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", marginBottom:6, borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
+                        <div style={{ minWidth:0 }}>
+                          {s.label && <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.label}</p>}
+                          <p style={{ margin:0, fontSize:s.label?12:14, fontWeight:s.label?400:600, color:s.label?C.text3:C.text }}>{fmtCalDate(s.startedAt)}</p>
+                        </div>
+                        <span style={{ fontSize:12, color:C.text3, flexShrink:0, marginLeft:10 }}>{s.messages.length} msg</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1318,21 +1500,29 @@ export default function Addie() {
                   <span onClick={clearTimer} role="button" style={{ fontSize:14, fontWeight:600, color:C.text2, border:`1.5px solid ${C.border}`, borderRadius:10, padding:"10px 24px", cursor:"pointer" }}>{timer.done?"Done":"Stop"}</span>
                 </div>
                 {!timer.done && (
-                  <div style={{ margin:"22px auto 0", maxWidth:320, padding:"12px 14px", backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:12, textAlign:"left" }}>
-                    <p style={{ margin:"0 0 6px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
-                      📵 <strong>Walking away?</strong> Addie can't alert you when the app is backgrounded — set a backup timer on your phone.
-                    </p>
-                    <p style={{ margin:0, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
-                      Set a{isIOS ? " Siri" : " Google"} timer as backup:{" "}
-                      <a
-                        href={isIOS
-                          ? `https://www.siri.com`
-                          : `https://www.google.com/search?q=set+timer+for+${Math.ceil((timer.remaining||0)/60)}+minutes`}
-                        target="_blank" rel="noreferrer"
-                        style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>
-                        {isIOS ? `"Hey Siri, set a timer for ${Math.ceil((timer.remaining||0)/60)} minutes"` : `Google: set timer ${Math.ceil((timer.remaining||0)/60)} min`}
-                      </a>
-                    </p>
+                  <div style={{ margin:"22px auto 0", maxWidth:320, padding:"12px 14px", backgroundColor:notifPermission==="granted"?C.greenBg:C.bg2, border:`1px solid ${notifPermission==="granted"?"#6EE7B7":C.borderLt}`, borderRadius:12, textAlign:"left" }}>
+                    {notifPermission === "granted" ? (
+                      <p style={{ margin:0, fontSize:12.5, color:C.greenText, lineHeight:1.5 }}>
+                        📳 <strong>Push notifications are on</strong> — you'll get an alarm even if the screen locks.
+                      </p>
+                    ) : (
+                      <>
+                        <p style={{ margin:"0 0 6px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
+                          📵 <strong>Walking away?</strong> Allow notifications to get an alarm even when the screen is off.
+                        </p>
+                        <p style={{ margin:0, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
+                          Set a{isIOS ? " Siri" : " Google"} timer as backup:{" "}
+                          <a
+                            href={isIOS
+                              ? `https://www.siri.com`
+                              : `https://www.google.com/search?q=set+timer+for+${Math.ceil((timer.remaining||0)/60)}+minutes`}
+                            target="_blank" rel="noreferrer"
+                            style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>
+                            {isIOS ? `"Hey Siri, set a timer for ${Math.ceil((timer.remaining||0)/60)} minutes"` : `Google: set timer ${Math.ceil((timer.remaining||0)/60)} min`}
+                          </a>
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1425,6 +1615,8 @@ export default function Addie() {
               ? <span onClick={() => setShowUpgrade(true)} role="button" style={{ fontSize:11, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Upgrade</span>
               : null}
           <span onClick={openSettings} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Preferences</span>
+          <a href="/privacy.html" target="_blank" rel="noreferrer" style={{ fontSize:11, color:C.text3, textDecoration:"underline" }}>Privacy</a>
+          <a href="/terms.html" target="_blank" rel="noreferrer" style={{ fontSize:11, color:C.text3, textDecoration:"underline" }}>Terms</a>
           <span onClick={signOut} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Sign out</span>
         </span>
       </div>
