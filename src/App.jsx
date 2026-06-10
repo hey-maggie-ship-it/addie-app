@@ -439,7 +439,7 @@ export default function Addie() {
     if (!session || !cloudLoaded) return;
     const t = setTimeout(saveToCloud, 500);
     return () => clearTimeout(t);
-  }, [tasks, grocery, profile, session, cloudLoaded, saveToCloud]);
+  }, [tasks, grocery, profile, messages, sessions, session, cloudLoaded, saveToCloud]);
 
   // Mobile-safe: save immediately when the app is hidden/closed.
   useEffect(() => {
