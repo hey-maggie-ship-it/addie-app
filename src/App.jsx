@@ -358,45 +358,44 @@ export default function Addie() {
   }, [session?.user?.id]);
 
   // ── Cloud save: push tasks/grocery/profile up whenever they change. ──
-  // Debounced to batch rapid edits, but ALSO flushed immediately when the app
-  // is backgrounded — otherwise a mobile browser can freeze/kill the pending
-  // timer before it fires and silently lose the write.
-  const saveDataRef = useRef({ tasks, grocery, profile });
-  const saveTimerRef = useRef(null);
-  const pendingSaveRef = useRef(false);
+  // Debounced to batch edits; ALSO flushed immediately when the app is hidden
+  // (mobile browsers can freeze a pending timer and lose the write otherwise).
+  // A ref holds the latest snapshot so out-of-render flushes never go stale.
+  const latestRef = useRef({ tasks, grocery, profile });
+  useEffect(() => { latestRef.current = { tasks, grocery, profile }; }, [tasks, grocery, profile]);
 
-  useEffect(() => { saveDataRef.current = { tasks, grocery, profile }; }, [tasks, grocery, profile]);
-
-  const flushSave = useCallback(() => {
-    if (!session || !cloudLoaded || !pendingSaveRef.current) return;
-    pendingSaveRef.current = false;
-    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
-    const d = saveDataRef.current;
+  const saveToCloud = useCallback(() => {
+    if (!session || !cloudLoaded) return;
+    const d = latestRef.current;
     supabase.from("user_data").upsert({
       user_id: session.user.id,
       tasks: d.tasks, grocery: d.grocery, profile: d.profile,
       updated_at: new Date().toISOString(),
-    }).then(({ error }) => { if (error) showToast("Sync failed — changes saved on this device"); });
+    }).then(({ error }) => {
+      if (error) {
+        console.warn("Cloud save failed:", error.message);
+        showToast("Sync failed — changes saved on this device");
+      }
+    });
   }, [session, cloudLoaded]);
 
+  // Debounced save on change.
   useEffect(() => {
     if (!session || !cloudLoaded) return;
-    pendingSaveRef.current = true;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(flushSave, 400);
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [tasks, grocery, profile, session, cloudLoaded, flushSave]);
+    const t = setTimeout(saveToCloud, 500);
+    return () => clearTimeout(t);
+  }, [tasks, grocery, profile, session, cloudLoaded, saveToCloud]);
 
-  // Mobile-safe: persist any pending change the instant the app is hidden/closed.
+  // Mobile-safe: save immediately when the app is hidden/closed.
   useEffect(() => {
-    const onVis = () => { if (document.visibilityState === "hidden") flushSave(); };
+    const onVis = () => { if (document.visibilityState === "hidden") saveToCloud(); };
     document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("pagehide", flushSave);
+    window.addEventListener("pagehide", saveToCloud);
     return () => {
       document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("pagehide", flushSave);
+      window.removeEventListener("pagehide", saveToCloud);
     };
-  }, [flushSave]);
+  }, [saveToCloud]);
 
   const sendMagicLink = async () => {
     const email = authEmail.trim();
