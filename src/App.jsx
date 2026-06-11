@@ -238,6 +238,7 @@ export default function Addie() {
   const [timerLabel, setTimerLabel] = useState("");        // optional name for a self-started timer
   const [installPrompt, setInstallPrompt] = useState(null);// captured beforeinstallprompt event
   const [showInstall, setShowInstall] = useState(false);   // show "add to home screen" banner
+  const [showNotifHelp, setShowNotifHelp] = useState(false);// expand notif fix-it steps
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
@@ -253,6 +254,44 @@ export default function Addie() {
 
   // Detect platform for backup alarm link
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isAndroid = /Android/.test(navigator.userAgent);
+  const isStandalone = typeof window !== "undefined" && !!(window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone);
+
+  // Once notifications are denied, browsers can't re-prompt or open settings for
+  // the user — so give exact, platform- and install-aware steps to fix it by hand.
+  const notifFixSteps = () => {
+    if (isIOS && !isStandalone) return {
+      lead: "On iPhone, alarms only work once Addie is added to your Home Screen:",
+      steps: ["Tap the Share button ⬆︎ in your browser bar", "Choose “Add to Home Screen”", "Open Addie from the new icon, then tap Allow when asked"],
+    };
+    if (isIOS) return {
+      lead: "Re-enable notifications in your iPhone Settings:",
+      steps: ["Open the Settings app", "Scroll down and tap Addie", "Turn on Allow Notifications"],
+    };
+    if (isAndroid && isStandalone) return {
+      lead: "Re-enable notifications for the Addie app:",
+      steps: ["Press and hold the Addie icon, then tap App info (ⓘ)", "Tap Notifications", "Turn notifications on"],
+    };
+    if (isAndroid) return {
+      lead: "Re-enable notifications in Chrome:",
+      steps: ["Tap the icon to the left of the web address", "Tap Permissions → Notifications", "Choose Allow, then reload the page"],
+    };
+    return {
+      lead: "Re-enable notifications in your browser:",
+      steps: ["Click the icon to the left of the web address (lock or tune)", "Set Notifications to Allow", "Reload the page"],
+    };
+  };
+  const renderNotifSteps = (color = "#92400E") => {
+    const { lead, steps } = notifFixSteps();
+    return (
+      <>
+        <p style={{ margin:"0 0 4px", fontSize:12, color, lineHeight:1.45, fontWeight:600 }}>{lead}</p>
+        <ol style={{ margin:0, paddingLeft:18 }}>
+          {steps.map((s, i) => <li key={i} style={{ fontSize:12, color, lineHeight:1.5 }}>{s}</li>)}
+        </ol>
+      </>
+    );
+  };
 
   // Install-to-home-screen prompt (PWA). Android/Chrome fires beforeinstallprompt;
   // iOS has no such event, so we show manual Share→Add to Home Screen instructions.
@@ -1335,17 +1374,18 @@ export default function Addie() {
                 </div>
               )}
               {onboardDraft.reminderEnabled && notifPermission !== "granted" && (
-                <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", borderRadius:12, border:`1.5px solid #FDE68A`, backgroundColor:"#FFFBEB", marginBottom:10 }}>
-                  <p style={{ margin:0, flex:1, fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>
-                    {notifPermission === "denied"
-                      ? "Notifications are blocked in your browser — re-allow them in site settings for reminders to reach you."
-                      : "Reminders need permission to send you notifications."}
-                  </p>
-                  {notifPermission !== "denied" && (
+                notifPermission === "denied" ? (
+                  <div style={{ padding:"12px 14px", borderRadius:12, border:`1.5px solid #FDE68A`, backgroundColor:"#FFFBEB", marginBottom:10 }}>
+                    <p style={{ margin:"0 0 6px", fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>Notifications are turned off, so reminders can't reach you.</p>
+                    {renderNotifSteps("#92400E")}
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", borderRadius:12, border:`1.5px solid #FDE68A`, backgroundColor:"#FFFBEB", marginBottom:10 }}>
+                    <p style={{ margin:0, flex:1, fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>Reminders need permission to send you notifications.</p>
                     <span role="button" onClick={requestNotifPermission}
                       style={{ fontSize:12.5, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:8, padding:"7px 13px", cursor:"pointer", flexShrink:0 }}>Enable</span>
-                  )}
-                </div>
+                  </div>
+                )
               )}
             </div>
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
@@ -1560,9 +1600,13 @@ export default function Addie() {
 
       {notifPermission === "denied" && (
         <div style={{ padding:"10px 18px", backgroundColor:"#FEF3C7", borderBottom:`1px solid #FDE68A`, flexShrink:0 }}>
-          <p style={{ margin:0, fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>
-            ⚠️ Notifications are blocked — timer alarm won't sound. Fix: Chrome Settings → Site settings → Notifications → allow this site.
-          </p>
+          <div onClick={() => setShowNotifHelp(v => !v)} role="button" style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
+            <p style={{ margin:0, flex:1, fontSize:12.5, color:"#92400E", lineHeight:1.4 }}>
+              ⚠️ Notifications are off — your timer alarm won't sound. <strong style={{ textDecoration:"underline" }}>How to turn them on</strong>
+            </p>
+            <span style={{ fontSize:11, color:"#92400E", flexShrink:0 }}>{showNotifHelp ? "▲" : "▼"}</span>
+          </div>
+          {showNotifHelp && <div style={{ marginTop:8 }}>{renderNotifSteps("#92400E")}</div>}
         </div>
       )}
 
