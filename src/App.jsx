@@ -118,6 +118,9 @@ function buildSystemPrompt(tasks, grocery, profile) {
   const fmtFull = (d) => d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const fmtISO  = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const tomorrow = new Date(now); tomorrow.setDate(now.getDate()+1);
+  const fmtClock = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const tzName = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "local time"; } })();
+  const localIso = `${fmtISO(now)}T${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
   const todayDate = `${fmtFull(now)} (${fmtISO(now)})`;
   const tomorrowDate = `${fmtFull(tomorrow)} (${fmtISO(tomorrow)})`;
   const today  = tasks.filter(t => t.bucket === "today"  && !t.done);
@@ -129,15 +132,15 @@ function buildSystemPrompt(tasks, grocery, profile) {
 
   return `You are Addie, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Not a task manager, not a therapist.
 
-Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}
+Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}
 
 Be DECISIVE when someone needs an answer or is ready to act — give your best take in one shot rather than dragging a question across many turns. One clarifying question is fine; three is too many.
 
 But READ THE MOMENT — decisiveness is not the same as being blunt or transactional. When someone is struggling, venting, frustrated, or overwhelmed, slow down and meet them there first: acknowledge how it feels, dig a little deeper to understand what's really going on, and normalize it ("this is really common — a lot of people hit exactly this wall"). Then, when they're ready, help break it into a small, manageable next step. The empathy and the decisiveness work together: understand first, then point the way. Don't rush a struggling person toward a solution before they feel heard, and don't over-explain to someone who just wants a quick answer.
 
-LIVE DATES: You know today's and tomorrow's date (stated above). You can and MUST compute any relative date yourself from today — "tomorrow," "this Friday," "next Monday," "in 3 days," "next week," "end of the month," etc. NEVER ask the user what today's, tomorrow's, or any relative date is — you have everything needed to work it out. When emitting a calendar date, resolve it to a concrete ISO date (YYYY-MM-DD) using today as the anchor.
+LIVE DATE & TIME: You know the current local date AND clock time (stated at the top). You can and MUST compute any relative date or time yourself from them — "tomorrow," "this Friday," "next Monday," "in 3 days," "next week," "end of the month," "in 2 minutes," "in an hour," "this afternoon," "tonight." NEVER say or imply you don't know the current time or date, and never ask the user what it is — you have everything needed to work it out. When emitting a calendar event or reminder, resolve it to a concrete datetime by anchoring on the current local datetime stated above (e.g. "in 2 minutes" = that datetime plus two minutes).
 
-NEVER guess times, prices, or facts you don't know (these are different from dates, which you CAN compute). "Memorial Day" is the last Monday of May; "July 4th" is July 4th; never substitute one for another. If a time or fact isn't stated and you can't derive it, ask rather than fabricate.
+NEVER guess external facts you don't know — store hours, prices, someone else's appointment time, a venue's address. (This is different from the current clock time and relative dates, which you DO know and CAN compute from the values stated above.) "Memorial Day" is the last Monday of May; "July 4th" is July 4th; never substitute one for another. If an external fact isn't stated and you can't derive it, ask rather than fabricate.
 
 CURRENT TASK MEMORY:
 Today (max 3): ${today.length ? today.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}`).join(", ") : "empty"}
@@ -230,6 +233,7 @@ export default function Addie() {
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [reminders, setReminders] = useState([]);          // chat-scheduled push reminders
+  const [remindersExpanded, setRemindersExpanded] = useState(true);
   const [viewingSession, setViewingSession] = useState(null);
   const [showHistory, setShowHistory] = useState(false);   // history overlay during active chat
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -1744,9 +1748,13 @@ export default function Addie() {
             <BucketSection label="Parked" items={parkedTasks} bucket="parked" />
             {reminders.filter(r=>!r.done).length>0 && (
               <div style={{ marginBottom:24 }}>
-                <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {reminders.filter(r=>!r.done).length}</p>
-                <p style={{ fontSize:12, color:C.text3, margin:"-2px 0 10px", lineHeight:1.4 }}>Addie will ping you at the right time — peek here when you have a free moment.</p>
-                {[...reminders].filter(r=>!r.done).sort((a,b)=> new Date(a.when) - new Date(b.when)).map(r => {
+                <div onClick={() => setRemindersExpanded(v=>!v)} role="button"
+                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 0", cursor:"pointer" }}>
+                  <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {reminders.filter(r=>!r.done).length}</p>
+                  <span style={{ fontSize:12, color:C.text2, fontWeight:600 }}>{remindersExpanded ? "Hide" : "Show"}</span>
+                </div>
+                <p style={{ fontSize:12, color:C.text3, margin:"2px 0 8px", lineHeight:1.4 }}>Things Addie's holding to ping you at the right time — peek when you have a free moment.</p>
+                {remindersExpanded && [...reminders].filter(r=>!r.done).sort((a,b)=> new Date(a.when) - new Date(b.when)).map(r => {
                   const past = new Date(r.when).getTime() < Date.now();
                   return (
                     <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.borderLt}` }}>
