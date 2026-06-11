@@ -1650,26 +1650,15 @@ export default function Addie() {
                     </div>
                   ))}
                 </div>
-                {messages.length > 0 && !pastExpanded && (() => {
-                  const last = messages[messages.length - 1];
-                  const preview = (last?.content || "").replace(/\s+/g, " ").trim();
-                  return (
-                    <div onClick={() => { setPastExpanded(true); setStarted(true); }} role="button"
-                      style={{ marginTop:14, padding:"12px 14px", backgroundColor:C.bg2, border:`1.5px solid ${C.blueBorder}`, borderRadius:12, cursor:"pointer" }}>
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:preview?5:0 }}>
-                        <span style={{ fontSize:12, color:C.text3, fontWeight:600 }}>Continue where you left off · {messages.length} messages</span>
-                        <span style={{ fontSize:12, color:C.blueText, fontWeight:700, flexShrink:0, marginLeft:8 }}>Continue ↓</span>
-                      </div>
-                      {preview && (
-                        <p style={{ margin:0, fontSize:13, color:C.text2, lineHeight:1.4, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>
-                          <span style={{ fontWeight:600, color:C.text3 }}>{last.role==="user" ? "You: " : "Addie: "}</span>{preview}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
+                {messages.length > 0 && !pastExpanded && (
+                  <div onClick={() => { setPastExpanded(true); setStarted(true); }} role="button"
+                    style={{ marginTop:18, padding:"12px 14px", backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
+                    <span style={{ fontSize:13, color:C.text2 }}>↑ Continue where you left off · {messages.length} messages</span>
+                    <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>Continue</span>
+                  </div>
+                )}
                 {sessions.length > 0 && (
-                  <div style={{ marginTop:20 }}>
+                  <div style={{ marginTop:18 }}>
                     <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Recent</p>
                     {sessions.slice(0, 15).map(s => (
                       <div key={s.id} onClick={() => setViewingSession(s)} role="button"
@@ -1750,16 +1739,20 @@ export default function Addie() {
 
         {tab==="board" && (
           <div style={{ padding:"16px 20px" }}>
+            <BucketSection label="Today" items={todayTasks} bucket="today" />
+            <BucketSection label="This week" items={weekTasks} bucket="week" />
+            <BucketSection label="Parked" items={parkedTasks} bucket="parked" />
             {reminders.filter(r=>!r.done).length>0 && (
-              <div style={{ marginBottom:22, padding:"14px 16px", borderRadius:16, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg }}>
-                <p style={{ margin:"0 0 8px", fontSize:12, fontWeight:700, color:C.blueText, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders</p>
-                {[...reminders].filter(r=>!r.done).sort((a,b)=> new Date(a.when) - new Date(b.when)).map((r, idx, arr) => {
+              <div style={{ marginBottom:24 }}>
+                <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {reminders.filter(r=>!r.done).length}</p>
+                <p style={{ fontSize:12, color:C.text3, margin:"-2px 0 10px", lineHeight:1.4 }}>Addie will ping you at the right time — peek here when you have a free moment.</p>
+                {[...reminders].filter(r=>!r.done).sort((a,b)=> new Date(a.when) - new Date(b.when)).map(r => {
                   const past = new Date(r.when).getTime() < Date.now();
                   return (
-                    <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom: idx<arr.length-1 ? `1px solid ${C.blueBorder}` : "none" }}>
+                    <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.borderLt}` }}>
                       <div style={{ flex:1, minWidth:0 }}>
-                        <p style={{ margin:0, fontSize:14, fontWeight:600, color:past?C.text3:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.text}</p>
-                        <p style={{ margin:"1px 0 0", fontSize:12, fontWeight:500, color:past?C.text3:C.blueText }}>{past ? "Sent · " : ""}{fmtCalDate(r.when)}</p>
+                        <p style={{ margin:0, fontSize:13.5, color:past?C.text3:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.text}</p>
+                        <p style={{ margin:"1px 0 0", fontSize:11.5, color:C.text3 }}>{past ? "Sent · " : ""}{fmtCalDate(r.when)}</p>
                       </div>
                       <span onClick={() => cancelReminder(r.id)} role="button" style={{ cursor:"pointer", color:C.text3, fontSize:15, padding:4, flexShrink:0 }}>✕</span>
                     </div>
@@ -1767,9 +1760,6 @@ export default function Addie() {
                 })}
               </div>
             )}
-            <BucketSection label="Today" items={todayTasks} bucket="today" />
-            <BucketSection label="This week" items={weekTasks} bucket="week" />
-            <BucketSection label="Parked" items={parkedTasks} bucket="parked" />
             {doneTasks.length>0 && (
               <div style={{ marginBottom:24 }}>
                 <div onClick={() => setDoneExpanded(!doneExpanded)} role="button"
