@@ -226,6 +226,9 @@ export default function Addie() {
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [viewingSession, setViewingSession] = useState(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearBackup, setClearBackup] = useState(null);   // snapshot for undo after clearing
+  const [customMin, setCustomMin] = useState("");          // custom timer length input
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
@@ -233,6 +236,7 @@ export default function Addie() {
   const chatScrollRef = useRef(null);
   const wakeLockRef = useRef(null);
   const pendingPushIdRef = useRef(null);
+  const alarmLoopRef = useRef(null);
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
   // JSON of the last data we synced (saved or received), to dedupe + ignore echoes.
@@ -651,13 +655,24 @@ export default function Addie() {
     try { navigator.vibrate?.([300, 100, 300, 100, 500, 100, 500]); } catch {}
   };
 
+  // Loop the chime (~3s cadence) until the user dismisses the alarm
+  const startAlarmLoop = () => {
+    stopAlarmLoop();
+    playTone();
+    alarmLoopRef.current = setInterval(playTone, 3000);
+  };
+  const stopAlarmLoop = () => {
+    if (alarmLoopRef.current) { clearInterval(alarmLoopRef.current); alarmLoopRef.current = null; }
+  };
+
   const triggerTimerAlert = () => {
     setTimerAlert(true);
     fireNotification(timer?.label || "");
-    playTone();
+    startAlarmLoop();
   };
 
   const dismissTimerAlert = () => {
+    stopAlarmLoop();
     setTimerAlert(false);
     clearTimer();
   };
@@ -694,6 +709,7 @@ export default function Addie() {
   };
   const clearTimer = () => {
     clearTimeout(timerRef.current);
+    stopAlarmLoop();
     timerEndTimeRef.current = null;
     setTimer(null);
     releaseWakeLock();
@@ -709,17 +725,35 @@ export default function Addie() {
   };
   const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
-  const calendarLink = (title, whenIso, minutes) => {
+  // Build & open an .ics file so the event lands in the device's *default* calendar
+  // (Apple Calendar on iPhone, Google/Outlook elsewhere) instead of forcing Google.
+  const addToCalendar = (title, whenIso, minutes) => {
     try {
       const start = new Date(whenIso);
       const end = new Date(start.getTime() + (minutes || 60) * 60000);
       const fmt = (d) => d.toISOString().replace(/[-:]|\.\d{3}/g, "");
-      const u = new URL("https://calendar.google.com/calendar/render");
-      u.searchParams.set("action", "TEMPLATE");
-      u.searchParams.set("text", title);
-      u.searchParams.set("dates", `${fmt(start)}/${fmt(end)}`);
-      return u.toString();
-    } catch { return null; }
+      const esc = (s) => (s || "").replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
+      const ics = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Addie//EN", "CALSCALE:GREGORIAN",
+        "BEGIN:VEVENT",
+        `UID:addie-${Date.now()}@addie.app`,
+        `DTSTAMP:${fmt(new Date())}`,
+        `DTSTART:${fmt(start)}`,
+        `DTEND:${fmt(end)}`,
+        `SUMMARY:${esc(title)}`,
+        "END:VEVENT", "END:VCALENDAR",
+      ].join("\r\n");
+      const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(title || "event").replace(/[^\w]+/g, "-").slice(0, 40) || "event"}.ics`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      return true;
+    } catch { return false; }
   };
   const fmtCalDate = (iso) => {
     try {
@@ -830,8 +864,8 @@ export default function Addie() {
     }
     else if (s.type === "timer") { startTimer(s.minutes, s.label); }
     else if (s.type === "calendar") {
-      const link = calendarLink(s.title, s.when, s.minutes);
-      if (link) window.open(link, "_blank");
+      const ok = addToCalendar(s.title, s.when, s.minutes);
+      showToast(ok ? "Added to your calendar" : "Couldn't open calendar");
     }
     else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = s.bucket==="today"&&n>=MAX_TODAY?"week":s.bucket; setTasks(p => [...p, {id:"t"+Date.now(), text:s.text, bucket:b, done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
     setPending(p => p.filter(x => x.id !== s.id));
@@ -858,7 +892,19 @@ export default function Addie() {
   const toggleGrocery = (id) => setGrocery(p => p.map(g => g.id===id?{...g,checked:!g.checked}:g));
   const deleteGrocery = (id) => setGrocery(p => p.filter(g => g.id!==id));
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
-  const resetAll = () => { setTasks([]); setGrocery([]); setMessages([]); setStarted(false); setPending([]); try{window.localStorage.removeItem(STORAGE_KEY);}catch{} showToast("Everything cleared"); };
+  const doClearAll = () => {
+    setClearBackup({ tasks, grocery });   // snapshot board + grocery so the user can undo
+    setTasks([]); setGrocery([]); setMessages([]); setStarted(false); setPending([]);
+    try{window.localStorage.removeItem(STORAGE_KEY);}catch{}
+    setShowClearConfirm(false); setShowSettings(false);
+    showToast("Data cleared");
+  };
+  const undoClear = () => {
+    if (!clearBackup) return;
+    setTasks(clearBackup.tasks || []); setGrocery(clearBackup.grocery || []);
+    setClearBackup(null);
+    showToast("Board & grocery restored");
+  };
 
   // ── Onboarding / profile ──
   const persistProfile = (p) => { try { window.localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch {} };
@@ -1184,7 +1230,7 @@ export default function Addie() {
               )}
             </div>
             <div style={{ marginTop:22, paddingTop:18, borderTop:`1.5px solid ${C.borderLt}` }}>
-              <span role="button" onClick={resetAll}
+              <span role="button" onClick={() => setShowClearConfirm(true)}
                 style={{ fontSize:13, color:C.danger, cursor:"pointer" }}>Clear all data…</span>
             </div>
           </div>
@@ -1216,6 +1262,30 @@ export default function Addie() {
               );
             })}
             <div style={{ height:24 }} />
+          </div>
+        </div>
+      )}
+
+      {/* Clear-all-data confirmation */}
+      {showClearConfirm && (
+        <div style={{ position:"fixed", inset:0, zIndex:96, backgroundColor:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center", padding:"24px" }}
+          onClick={() => setShowClearConfirm(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ backgroundColor:C.bg, borderRadius:18, padding:"24px", width:"100%", maxWidth:380, boxShadow:"0 8px 40px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontSize:30, textAlign:"center", marginBottom:10 }}>⚠️</div>
+            <h2 style={{ margin:"0 0 10px", fontSize:18, fontWeight:700, color:C.text, textAlign:"center" }}>Clear all data?</h2>
+            <p style={{ margin:"0 0 8px", fontSize:13.5, color:C.text2, lineHeight:1.55, textAlign:"center" }}>
+              This deletes your <strong>board tasks</strong>, <strong>grocery list</strong>, and <strong>current chat</strong> from this device and your account.
+            </p>
+            <p style={{ margin:"0 0 18px", fontSize:12.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>
+              You can undo the board &amp; grocery right after — but chat history can't be recovered.
+            </p>
+            <div style={{ display:"flex", gap:10 }}>
+              <span role="button" onClick={() => setShowClearConfirm(false)}
+                style={{ flex:1, textAlign:"center", fontSize:14.5, fontWeight:600, color:C.text2, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"12px 0", cursor:"pointer" }}>Cancel</span>
+              <span role="button" onClick={doClearAll}
+                style={{ flex:1, textAlign:"center", fontSize:14.5, fontWeight:700, color:"#fff", backgroundColor:C.danger, borderRadius:12, padding:"12px 0", cursor:"pointer" }}>Clear everything</span>
+            </div>
           </div>
         </div>
       )}
@@ -1296,6 +1366,8 @@ export default function Addie() {
           <span onClick={startNewSession} role="button"
             style={{ fontSize:12, color:C.text2, backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:8, padding:"6px 12px", cursor:"pointer" }}>New session</span>
         )}
+        <span onClick={openSettings} role="button" title="Preferences"
+          style={{ fontSize:20, lineHeight:1, color:C.text3, cursor:"pointer", flexShrink:0, padding:"2px" }}>⚙️</span>
       </div>
 
       {notifPermission === "denied" && (
@@ -1317,6 +1389,14 @@ export default function Addie() {
       )}
 
       {toast && <div style={{ backgroundColor:"#F0FDF4", padding:"10px 20px", fontSize:13.5, color:"#166534", textAlign:"center", fontWeight:500, flexShrink:0 }}>{toast}</div>}
+
+      {clearBackup && (
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 18px", backgroundColor:"#FEF3C7", borderBottom:`1px solid #FDE68A`, flexShrink:0 }}>
+          <span style={{ flex:1, fontSize:12.5, color:"#92400E" }}>Board &amp; grocery cleared.</span>
+          <span role="button" onClick={undoClear} style={{ fontSize:12.5, fontWeight:700, color:C.blueText, cursor:"pointer" }}>Undo</span>
+          <span role="button" onClick={() => setClearBackup(null)} style={{ fontSize:14, color:"#92400E", cursor:"pointer", lineHeight:1 }}>✕</span>
+        </div>
+      )}
 
       {/* Body */}
       <div ref={(el) => { bodyScrollRef.current = el; if (tab === "chat") chatScrollRef.current = el; }} style={{ flex:1, overflowY:"auto", minHeight:0 }}>
@@ -1481,6 +1561,23 @@ export default function Addie() {
                     </div>
                   ))}
                 </div>
+                {(() => {
+                  const m = parseInt(customMin, 10);
+                  const valid = m > 0 && m <= 600;
+                  const go = () => { if (valid) { startTimer(m, ""); setCustomMin(""); } };
+                  return (
+                    <div style={{ display:"flex", gap:8, maxWidth:280, margin:"12px auto 0", alignItems:"center" }}>
+                      <input type="number" inputMode="numeric" min="1" max="600" value={customMin}
+                        onChange={e => setCustomMin(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") go(); }}
+                        placeholder="Custom"
+                        style={{ flex:1, fontSize:16, padding:"13px 14px", borderRadius:14, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, textAlign:"center", outline:"none", boxSizing:"border-box", fontWeight:600 }} />
+                      <span style={{ fontSize:13, color:C.text3 }}>min</span>
+                      <span role="button" onClick={go}
+                        style={{ fontSize:15, fontWeight:700, color: valid ? "#fff" : C.text3, backgroundColor: valid ? C.blue : C.bg2, border: valid ? "none" : `1.5px solid ${C.borderLt}`, borderRadius:14, padding:"13px 20px", cursor: valid ? "pointer" : "default" }}>Start</span>
+                    </div>
+                  );
+                })()}
                 <p style={{ margin:"22px 0 0", fontSize:12.5, color:C.text3, lineHeight:1.5 }}>Tip: start a timer for a specific task from the ••• menu on the Board.</p>
               </div>
             ) : (
@@ -1604,20 +1701,19 @@ export default function Addie() {
         })}
       </div>
 
-      <div style={{ padding:"8px 20px calc(8px + env(safe-area-inset-bottom))", borderTop:`1px solid ${C.borderLt}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0, gap:10 }}>
-        <span style={{ fontSize:11, color:C.text3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }} title={session?.user?.email || ""}>
+      <div style={{ padding:"11px 20px calc(11px + env(safe-area-inset-bottom))", borderTop:`1px solid ${C.borderLt}`, display:"flex", justifyContent:"space-between", alignItems:"center", flexShrink:0, gap:10 }}>
+        <span style={{ fontSize:12.5, color:C.text2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", minWidth:0 }} title={session?.user?.email || ""}>
           {session?.user?.email ? `☁ ${session.user.email}` : "Synced to your account"}
         </span>
-        <span style={{ display:"flex", gap:14, flexShrink:0, alignItems:"center" }}>
+        <span style={{ display:"flex", gap:16, flexShrink:0, alignItems:"center" }}>
           {subscription === "active"
-            ? <span style={{ fontSize:11, fontWeight:700, color:C.blueText, backgroundColor:C.blueBg, borderRadius:20, padding:"2px 10px" }}>✦ Pro</span>
+            ? <span style={{ fontSize:12, fontWeight:700, color:C.blueText, backgroundColor:C.blueBg, borderRadius:20, padding:"2px 10px" }}>✦ Pro</span>
             : subscription === "free"
-              ? <span onClick={() => setShowUpgrade(true)} role="button" style={{ fontSize:11, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Upgrade</span>
+              ? <span onClick={() => setShowUpgrade(true)} role="button" style={{ fontSize:12.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Upgrade</span>
               : null}
-          <span onClick={openSettings} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Preferences</span>
-          <a href="/privacy.html" target="_blank" rel="noreferrer" style={{ fontSize:11, color:C.text3, textDecoration:"underline" }}>Privacy</a>
-          <a href="/terms.html" target="_blank" rel="noreferrer" style={{ fontSize:11, color:C.text3, textDecoration:"underline" }}>Terms</a>
-          <span onClick={signOut} role="button" style={{ fontSize:11, color:C.text3, cursor:"pointer", textDecoration:"underline" }}>Sign out</span>
+          <a href="/privacy.html" target="_blank" rel="noreferrer" style={{ fontSize:12.5, color:C.text2, textDecoration:"underline" }}>Privacy</a>
+          <a href="/terms.html" target="_blank" rel="noreferrer" style={{ fontSize:12.5, color:C.text2, textDecoration:"underline" }}>Terms</a>
+          <span onClick={signOut} role="button" style={{ fontSize:12.5, color:C.text2, cursor:"pointer", textDecoration:"underline" }}>Sign out</span>
         </span>
       </div>
 
