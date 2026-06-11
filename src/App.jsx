@@ -8,6 +8,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 
 const STORAGE_KEY = "addie-app-state-v1";
+const TIMER_KEY = "addie-timer-v1";
 const PROFILE_KEY = "addie-profile-v1";
 const MIGRATED_KEY = "addie-migrated-v1"; // which account this device has already merged its local data into
 const IDLE_RESET_MS = 60 * 60 * 1000;
@@ -229,12 +230,12 @@ export default function Addie() {
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [reminders, setReminders] = useState([]);          // chat-scheduled push reminders
-  const [remindersExpanded, setRemindersExpanded] = useState(false);
   const [viewingSession, setViewingSession] = useState(null);
   const [showHistory, setShowHistory] = useState(false);   // history overlay during active chat
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearBackup, setClearBackup] = useState(null);   // snapshot for undo after clearing
   const [customMin, setCustomMin] = useState("");          // custom timer length input
+  const [timerLabel, setTimerLabel] = useState("");        // optional name for a self-started timer
   const [installPrompt, setInstallPrompt] = useState(null);// captured beforeinstallprompt event
   const [showInstall, setShowInstall] = useState(false);   // show "add to home screen" banner
   const bottomRef = useRef(null);
@@ -603,6 +604,51 @@ export default function Addie() {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, loading, pending]);
+
+  // Entering active chat (e.g. "Continue where you left off") → jump to the bottom.
+  useEffect(() => {
+    if (started && tab === "chat" && messages.length > 0) {
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "auto" }), 60);
+    }
+  }, [started, pastExpanded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist the running/paused timer so it survives a full app close (not just
+  // a minimize). Stores the absolute end time + the scheduled push id so we can
+  // restore the countdown and still cancel the backup push.
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      if (timer && !timer.done) {
+        window.localStorage.setItem(TIMER_KEY, JSON.stringify({
+          label: timer.label, total: timer.total, remaining: timer.remaining,
+          running: timer.running, endTime: timerEndTimeRef.current, pushId: pendingPushIdRef.current,
+        }));
+      } else {
+        window.localStorage.removeItem(TIMER_KEY);
+      }
+    } catch {}
+  }, [timer, hydrated]);
+
+  // Restore a persisted timer on launch.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TIMER_KEY);
+      if (!raw) return;
+      const t = JSON.parse(raw);
+      pendingPushIdRef.current = t.pushId || null;
+      if (t.running && t.endTime) {
+        const remaining = Math.round((t.endTime - Date.now()) / 1000);
+        if (remaining > 0) {
+          timerEndTimeRef.current = t.endTime;
+          setTimer({ label: t.label || "", total: t.total, remaining, running: true, done: false });
+        } else {
+          window.localStorage.removeItem(TIMER_KEY); // already elapsed while closed; the push fired
+        }
+      } else if (!t.running && t.remaining > 0) {
+        setTimer({ label: t.label || "", total: t.total, remaining: t.remaining, running: false, done: false });
+      }
+    } catch {}
+  }, []);
 
   // ── Fix 3: Background-safe timer using end timestamp ──
   useEffect(() => {
@@ -1487,7 +1533,7 @@ export default function Addie() {
         </div>
         {tab==="chat" && sessions.length>0 && (
           <span onClick={() => setShowHistory(true)} role="button" title="Past sessions"
-            style={{ fontSize:18, lineHeight:1, color:C.text3, cursor:"pointer", flexShrink:0, padding:"2px" }}>🕘</span>
+            style={{ fontSize:18, lineHeight:1, color:C.text3, cursor:"pointer", flexShrink:0, padding:"2px" }}>🗂️</span>
         )}
         {tab==="chat" && messages.length>0 && (started || pastExpanded) && (
           <span onClick={startNewSession} role="button"
@@ -1649,6 +1695,23 @@ export default function Addie() {
 
         {tab==="board" && (
           <div style={{ padding:"16px 20px" }}>
+            {reminders.filter(r=>!r.done).length>0 && (
+              <div style={{ marginBottom:22, padding:"14px 16px", borderRadius:16, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg }}>
+                <p style={{ margin:"0 0 8px", fontSize:12, fontWeight:700, color:C.blueText, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders</p>
+                {[...reminders].filter(r=>!r.done).sort((a,b)=> new Date(a.when) - new Date(b.when)).map((r, idx, arr) => {
+                  const past = new Date(r.when).getTime() < Date.now();
+                  return (
+                    <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom: idx<arr.length-1 ? `1px solid ${C.blueBorder}` : "none" }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ margin:0, fontSize:14, fontWeight:600, color:past?C.text3:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.text}</p>
+                        <p style={{ margin:"1px 0 0", fontSize:12, fontWeight:500, color:past?C.text3:C.blueText }}>{past ? "Sent · " : ""}{fmtCalDate(r.when)}</p>
+                      </div>
+                      <span onClick={() => cancelReminder(r.id)} role="button" style={{ cursor:"pointer", color:C.text3, fontSize:15, padding:4, flexShrink:0 }}>✕</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <BucketSection label="Today" items={todayTasks} bucket="today" />
             <BucketSection label="This week" items={weekTasks} bucket="week" />
             <BucketSection label="Parked" items={parkedTasks} bucket="parked" />
@@ -1666,28 +1729,6 @@ export default function Addie() {
                     <span onClick={(e) => { e.stopPropagation(); deleteTask(t.id); }} role="button" style={{ cursor:"pointer", color:C.text3, fontSize:15, padding:4 }}>✕</span>
                   </div>
                 ))}
-              </div>
-            )}
-            {reminders.filter(r=>!r.done).length>0 && (
-              <div style={{ marginBottom:24 }}>
-                <div onClick={() => setRemindersExpanded(!remindersExpanded)} role="button"
-                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 0", cursor:"pointer" }}>
-                  <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {reminders.filter(r=>!r.done).length}</p>
-                  <span style={{ fontSize:12, color:C.text2, fontWeight:600 }}>{remindersExpanded ? "Hide" : "Show"}</span>
-                </div>
-                {remindersExpanded && [...reminders].filter(r=>!r.done).sort((a,b)=> new Date(a.when) - new Date(b.when)).map(r => {
-                  const past = new Date(r.when).getTime() < Date.now();
-                  return (
-                    <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.borderLt}` }}>
-                      <span style={{ fontSize:15, flexShrink:0, opacity:past?0.4:1 }}>⏰</span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <p style={{ margin:0, fontSize:13.5, color:past?C.text3:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.text}</p>
-                        <p style={{ margin:"1px 0 0", fontSize:11.5, color:C.text3 }}>{past ? "Sent · " : ""}{fmtCalDate(r.when)}</p>
-                      </div>
-                      <span onClick={() => cancelReminder(r.id)} role="button" style={{ cursor:"pointer", color:C.text3, fontSize:15, padding:4, flexShrink:0 }}>✕</span>
-                    </div>
-                  );
-                })}
               </div>
             )}
             <div style={{ borderTop:`1.5px solid ${C.borderLt}`, paddingTop:18 }}>
@@ -1719,28 +1760,30 @@ export default function Addie() {
                     </p>
                   </div>
                 )}
+                <input value={timerLabel} onChange={e => setTimerLabel(e.target.value)}
+                  placeholder="What's this timer for? (optional)"
+                  style={{ width:"100%", maxWidth:280, margin:"0 auto 12px", display:"block", boxSizing:"border-box", fontSize:15, padding:"12px 14px", borderRadius:12, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, outline:"none", textAlign:"center" }} />
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, maxWidth:280, margin:"0 auto" }}>
                   {TIMER_PRESETS.map(m => (
-                    <div key={m} onClick={() => startTimer(m,"")} role="button"
-                      style={{ padding:"20px 0", borderRadius:14, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, cursor:"pointer", fontSize:20, fontWeight:700, color:C.text }}>
-                      {m}<span style={{ fontSize:13, fontWeight:500, color:C.text3 }}> min</span>
+                    <div key={m} onClick={() => { startTimer(m, timerLabel.trim()); setTimerLabel(""); }} role="button"
+                      style={{ height:64, display:"flex", alignItems:"center", justifyContent:"center", borderRadius:14, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, cursor:"pointer", fontSize:20, fontWeight:700, color:C.text }}>
+                      {m}<span style={{ fontSize:13, fontWeight:500, color:C.text3 }}>&nbsp;min</span>
                     </div>
                   ))}
                 </div>
                 {(() => {
                   const m = parseInt(customMin, 10);
                   const valid = m > 0 && m <= 600;
-                  const go = () => { if (valid) { startTimer(m, ""); setCustomMin(""); } };
+                  const go = () => { if (valid) { startTimer(m, timerLabel.trim()); setCustomMin(""); setTimerLabel(""); } };
                   return (
-                    <div style={{ display:"flex", gap:8, maxWidth:280, margin:"12px auto 0", alignItems:"center" }}>
+                    <div style={{ display:"flex", gap:10, maxWidth:280, margin:"10px auto 0", alignItems:"stretch" }}>
                       <input type="number" inputMode="numeric" min="1" max="600" value={customMin}
                         onChange={e => setCustomMin(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter") go(); }}
-                        placeholder="Custom"
-                        style={{ flex:1, fontSize:16, padding:"13px 14px", borderRadius:14, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, textAlign:"center", outline:"none", boxSizing:"border-box", fontWeight:600 }} />
-                      <span style={{ fontSize:13, color:C.text3 }}>min</span>
+                        placeholder="Custom min"
+                        style={{ flex:1, height:64, fontSize:18, padding:"0 14px", borderRadius:14, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, textAlign:"center", outline:"none", boxSizing:"border-box", fontWeight:700 }} />
                       <span role="button" onClick={go}
-                        style={{ fontSize:15, fontWeight:700, color: valid ? "#fff" : C.text3, backgroundColor: valid ? C.blue : C.bg2, border: valid ? "none" : `1.5px solid ${C.borderLt}`, borderRadius:14, padding:"13px 20px", cursor: valid ? "pointer" : "default" }}>Start</span>
+                        style={{ height:64, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:700, color: valid ? "#fff" : C.text3, backgroundColor: valid ? C.blue : C.bg2, border: valid ? "none" : `1.5px solid ${C.borderLt}`, borderRadius:14, padding:"0 24px", cursor: valid ? "pointer" : "default" }}>Start</span>
                     </div>
                   );
                 })()}
@@ -1769,22 +1812,9 @@ export default function Addie() {
                         📳 <strong>Notifications are on</strong> — your alarm will sound even if your screen is locked or this tab is closed.
                       </p>
                     ) : (
-                      <>
-                        <p style={{ margin:"0 0 6px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
-                          📵 <strong>Walking away?</strong> Allow notifications to get an alarm even when the screen is off.
-                        </p>
-                        <p style={{ margin:0, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
-                          Set a{isIOS ? " Siri" : " Google"} timer as backup:{" "}
-                          <a
-                            href={isIOS
-                              ? `https://www.siri.com`
-                              : `https://www.google.com/search?q=set+timer+for+${Math.ceil((timer.remaining||0)/60)}+minutes`}
-                            target="_blank" rel="noreferrer"
-                            style={{ color:C.blueText, fontWeight:600, textDecoration:"underline" }}>
-                            {isIOS ? `"Hey Siri, set a timer for ${Math.ceil((timer.remaining||0)/60)} minutes"` : `Google: set timer ${Math.ceil((timer.remaining||0)/60)} min`}
-                          </a>
-                        </p>
-                      </>
+                      <p style={{ margin:0, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
+                        📵 <strong>Walking away?</strong> Allow notifications to get an alarm even when the screen is off.
+                      </p>
                     )}
                   </div>
                 )}
@@ -1842,7 +1872,7 @@ export default function Addie() {
       {tab==="chat" && (
         <div style={{ padding:"16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
           <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
-            placeholder="Message Addie… (Ctrl+Enter to send)" rows={2}
+            placeholder="Message Addie…  (Ctrl+Enter to send · 🎤 tap your keyboard's mic to talk)" rows={2}
             style={{ flex:1, resize:"none", fontSize:16, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
