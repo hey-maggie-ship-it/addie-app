@@ -15,16 +15,16 @@ const IDLE_RESET_MS = 60 * 60 * 1000;
 
 // Read this device's locally-stored data (the pre-accounts data, or offline cache).
 function readLocalData() {
-  let tasks = [], grocery = [], profile = null, messages = [], reminders = [];
+  let tasks = [], grocery = [], profile = null, messages = [], reminders = [], memory = [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; if (Array.isArray(s.messages)) messages = s.messages; if (Array.isArray(s.reminders)) reminders = s.reminders; }
+    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; if (Array.isArray(s.messages)) messages = s.messages; if (Array.isArray(s.reminders)) reminders = s.reminders; if (Array.isArray(s.memory)) memory = s.memory; }
   } catch {}
   try {
     const praw = window.localStorage.getItem(PROFILE_KEY);
     if (praw) profile = JSON.parse(praw);
   } catch {}
-  return { tasks, grocery, profile, messages, reminders };
+  return { tasks, grocery, profile, messages, reminders, memory };
 }
 
 // Union two lists of {id,...} items, keeping every unique id. On id collision,
@@ -40,8 +40,8 @@ function profileHasContent(p) {
 
 // Stable string snapshot of the synced data, used to dedupe saves and to
 // ignore the echo of our own writes coming back over Realtime.
-function snapshotJson(tasks, grocery, profile, messages = [], sessions = [], reminders = []) {
-  return JSON.stringify({ tasks: tasks||[], grocery: grocery||[], profile: profile||null, messages: messages||[], sessions: sessions||[], reminders: reminders||[] });
+function snapshotJson(tasks, grocery, profile, messages = [], sessions = [], reminders = [], memory = []) {
+  return JSON.stringify({ tasks: tasks||[], grocery: grocery||[], profile: profile||null, messages: messages||[], sessions: sessions||[], reminders: reminders||[], memory: memory||[] });
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -113,7 +113,7 @@ function buildProfileBlock(profile) {
   return `\n\nUSER PROFILE (from onboarding — use to shape your tone and suggestions from the first message):\n${parts.join("\n")}\n\nADAPT OVER TIME: This profile is a starting point, not a cage. If the user gives a clear signal mid-conversation — "you're being too wordy," "just tell me what to do," "slow down," visible frustration — honor it and adjust your style for the rest of the session. Don't silently re-profile them on a whim; respond to explicit cues. They can change these preferences anytime in Settings.`;
 }
 
-function buildSystemPrompt(tasks, grocery, profile) {
+function buildSystemPrompt(tasks, grocery, profile, memory = []) {
   const now = new Date();
   const fmtFull = (d) => d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const fmtISO  = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -129,10 +129,14 @@ function buildSystemPrompt(tasks, grocery, profile) {
   const done   = tasks.filter(t => t.done);
   const gItems = grocery.filter(g => !g.checked);
   const withNext = tasks.filter(t => t.nextStep && !t.done);
+  const memList = (memory || []).filter(m => m && m.text);
+  const memoryBlock = memList.length
+    ? `\n\nWHAT YOU'VE LEARNED ABOUT THIS USER (durable memory carried across every session — use it to personalize naturally; do NOT recite it back like a list or announce that you remember):\n${memList.map(m => `- ${m.text}`).join("\n")}`
+    : "";
 
   return `You are Addie, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Not a task manager, not a therapist.
 
-Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}
+Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}${memoryBlock}
 
 Be DECISIVE when someone needs an answer or is ready to act — give your best take in one shot rather than dragging a question across many turns. One clarifying question is fine; three is too many.
 
@@ -164,6 +168,8 @@ CALENDAR HANDOFF: When the user asks to schedule something or a specific date+ti
 
 REMINDERS: When the user asks to be reminded of something at a future time or rough period ("remind me to call mom tomorrow night," "nudge me about the deposit mid next week afternoon"), include a type:reminder suggestion. A reminder sends a push notification at that time — it is NOT a calendar event and NOT a board task. Resolve any vague/relative time to a concrete local datetime, choosing a sensible specific hour: morning≈09:00, afternoon≈14:00, evening≈19:00, "mid next week"≈the coming Wednesday. Only use type:reminder when there is a time to fire at; use type:calendar for events with a place/duration, and type:task for to-dos with no specific reminder time. As with calendar, NEVER claim you've set a reminder in prose without emitting the type:reminder line in the same reply.
 
+REMEMBERING THE USER: You build a lasting understanding of this person across sessions. When you learn something durable and worth carrying into future conversations — a meaningful goal ("training for an October marathon"), a recurring struggle ("email is the overwhelm trigger"), an important person or hard deadline ("Q3 board deck is the make-or-break"), a stable working preference ("focuses best early morning"), or a significant life context — capture it with a type:remember suggestion. It saves silently and quietly; you do NOT need to announce it or ask permission. Guidelines: only durable facts about the PERSON, not fleeting state, today's mood, or anything already captured as a task/grocery/reminder. Keep each memory one short, self-contained sentence. Do NOT re-save something already shown in WHAT YOU'VE LEARNED ABOUT THIS USER above. Don't force it — most messages won't warrant a new memory.
+
 UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'") — UPDATE the existing item by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item.
 
 SUGGESTION FORMAT:
@@ -184,6 +190,7 @@ SUGGESTIONS:
 - type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
 - type:reminder | "what to remind them about" | when:"YYYY-MM-DDTHH:MM"
 - type:timer | minutes:15 | label:"what the timer is for"
+- type:remember | "one short durable fact about the user"
 
 Rules: Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
 
@@ -207,6 +214,7 @@ export default function Addie() {
   const [newBucket, setNewBucket] = useState("today");
   const [newGrocery, setNewGrocery] = useState("");
   const [newStore, setNewStore] = useState("");
+  const [newMemory, setNewMemory] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState("");
   const [menuId, setMenuId] = useState(null);
@@ -234,6 +242,9 @@ export default function Addie() {
   const [sessions, setSessions] = useState([]);
   const [reminders, setReminders] = useState([]);          // chat-scheduled push reminders
   const [remindersExpanded, setRemindersExpanded] = useState(true);
+  const [memory, setMemory] = useState([]);                // durable facts Addie learns about the user
+  const [calendarApp, setCalendarApp] = useState(() => { try { return window.localStorage.getItem("addie-calendar-app") || ""; } catch { return ""; } }); // remembered per-device calendar choice
+  const [pendingCal, setPendingCal] = useState(null);      // event awaiting a calendar-app pick (chooser open when set)
   const [viewingSession, setViewingSession] = useState(null);
   const [showHistory, setShowHistory] = useState(false);   // history overlay during active chat
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -358,6 +369,7 @@ export default function Addie() {
         if (Array.isArray(s.sessions)) setSessions(s.sessions);
         // Drop reminders more than a day past so the list doesn't grow forever.
         if (Array.isArray(s.reminders)) setReminders(s.reminders.filter(r => new Date(r.when).getTime() > Date.now() - 864e5));
+        if (Array.isArray(s.memory)) setMemory(s.memory);
         if (s.lastActivity) setLastActivity(s.lastActivity);
         setStarted(false);
         setPastExpanded(false);
@@ -397,8 +409,8 @@ export default function Addie() {
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, reminders, lastActivity })); } catch {}
-  }, [tasks, grocery, messages, sessions, reminders, lastActivity, hydrated]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, reminders, memory, lastActivity })); } catch {}
+  }, [tasks, grocery, messages, sessions, reminders, memory, lastActivity, hydrated]);
 
   // ── Auth: track the Supabase session ──
   useEffect(() => {
@@ -421,7 +433,7 @@ export default function Addie() {
     let cancelled = false;
     (async () => {
       const [{ data, error }, { data: subData }] = await Promise.all([
-        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions, reminders").eq("user_id", session.user.id).maybeSingle(),
+        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions, reminders, memory").eq("user_id", session.user.id).maybeSingle(),
         supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle(),
       ]);
       if (cancelled) return;
@@ -440,6 +452,7 @@ export default function Addie() {
       const cloudMessages = Array.isArray(data?.messages) ? data.messages : [];
       const cloudSessions = Array.isArray(data?.sessions) ? data.sessions : [];
       const cloudReminders = Array.isArray(data?.reminders) ? data.reminders : [];
+      const cloudMemory = Array.isArray(data?.memory) ? data.memory : [];
 
       // Has THIS device already contributed its local data to THIS account?
       let alreadyMigrated = false;
@@ -452,9 +465,10 @@ export default function Addie() {
         if (cloudMessages.length > 0) setMessages(cloudMessages);
         setSessions(cloudSessions);
         setReminders(cloudReminders);
+        setMemory(cloudMemory);
         if (cloudProfile) { setProfile(cloudProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
-        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions, cloudReminders);
+        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions, cloudReminders, cloudMemory);
       } else {
         // First time this device signs into this account → merge its local data
         // into the cloud so nothing on this device is lost (union by id). Each
@@ -468,25 +482,27 @@ export default function Addie() {
         const mergedMessages = cloudMessages.length > 0 ? cloudMessages : (local.messages || []);
         const mergedSessions = cloudSessions;
         const mergedReminders = mergeById(cloudReminders, local.reminders);
+        const mergedMemory = mergeById(cloudMemory, local.memory);
 
         setTasks(mergedTasks);
         setGrocery(mergedGrocery);
         if (mergedMessages.length > 0) setMessages(mergedMessages);
         setSessions(mergedSessions);
         setReminders(mergedReminders);
+        setMemory(mergedMemory);
         if (mergedProfile) { setProfile(mergedProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
 
         const { error: upErr } = await supabase.from("user_data").upsert({
           user_id: session.user.id,
           tasks: mergedTasks, grocery: mergedGrocery, profile: mergedProfile,
-          messages: mergedMessages, sessions: mergedSessions, reminders: mergedReminders,
+          messages: mergedMessages, sessions: mergedSessions, reminders: mergedReminders, memory: mergedMemory,
           updated_at: new Date().toISOString(),
         });
         if (!upErr) {
           try { window.localStorage.setItem(MIGRATED_KEY, session.user.id); } catch {}
         }
-        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile, mergedMessages, mergedSessions, mergedReminders);
+        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile, mergedMessages, mergedSessions, mergedReminders, mergedMemory);
       }
       setSubscription(subData?.status === "active" ? "active" : "free");
       setCloudLoaded(true);
@@ -498,18 +514,18 @@ export default function Addie() {
   // Debounced to batch edits; ALSO flushed immediately when the app is hidden
   // (mobile browsers can freeze a pending timer and lose the write otherwise).
   // A ref holds the latest snapshot so out-of-render flushes never go stale.
-  const latestRef = useRef({ tasks, grocery, profile, messages, sessions, reminders });
-  useEffect(() => { latestRef.current = { tasks, grocery, profile, messages, sessions, reminders }; }, [tasks, grocery, profile, messages, sessions, reminders]);
+  const latestRef = useRef({ tasks, grocery, profile, messages, sessions, reminders, memory });
+  useEffect(() => { latestRef.current = { tasks, grocery, profile, messages, sessions, reminders, memory }; }, [tasks, grocery, profile, messages, sessions, reminders, memory]);
 
   const saveToCloud = useCallback(() => {
     if (!session || !cloudLoaded) return;
     const d = latestRef.current;
-    const json = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions, d.reminders);
+    const json = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions, d.reminders, d.memory);
     if (json === lastSyncedRef.current) return; // nothing changed since last sync (incl. our own echoes)
     lastSyncedRef.current = json;
     supabase.from("user_data").upsert({
       user_id: session.user.id,
-      tasks: d.tasks, grocery: d.grocery, profile: d.profile, messages: d.messages, sessions: d.sessions, reminders: d.reminders,
+      tasks: d.tasks, grocery: d.grocery, profile: d.profile, messages: d.messages, sessions: d.sessions, reminders: d.reminders, memory: d.memory,
       updated_at: new Date().toISOString(),
     }).then(({ error }) => {
       if (error) {
@@ -524,7 +540,7 @@ export default function Addie() {
     if (!session || !cloudLoaded) return;
     const t = setTimeout(saveToCloud, 500);
     return () => clearTimeout(t);
-  }, [tasks, grocery, profile, messages, sessions, reminders, session, cloudLoaded, saveToCloud]);
+  }, [tasks, grocery, profile, messages, sessions, reminders, memory, session, cloudLoaded, saveToCloud]);
 
   // Mobile-safe: save immediately when the app is hidden/closed.
   useEffect(() => {
@@ -553,8 +569,9 @@ export default function Addie() {
           const rMessages = Array.isArray(row.messages) ? row.messages : [];
           const rSessions = Array.isArray(row.sessions) ? row.sessions : [];
           const rReminders = Array.isArray(row.reminders) ? row.reminders : [];
+          const rMemory   = Array.isArray(row.memory)    ? row.memory    : [];
           const rProfile  = row.profile || null;
-          const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions, rReminders);
+          const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions, rReminders, rMemory);
           // Ignore our own echo / anything identical to what we already have.
           if (incoming === lastSyncedRef.current) return;
           lastSyncedRef.current = incoming;
@@ -563,6 +580,7 @@ export default function Addie() {
           if (rMessages.length > 0) setMessages(rMessages);
           setSessions(rSessions);
           setReminders(rReminders);
+          setMemory(rMemory);
           if (rProfile) { setProfile(rProfile); setOnboarded(true); }
           else { setProfile(null); setOnboarded(false); }
         }
@@ -853,35 +871,51 @@ export default function Addie() {
   };
   const fmtTime = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
-  // Build & open an .ics file so the event lands in the device's *default* calendar
-  // (Apple Calendar on iPhone, Google/Outlook elsewhere) instead of forcing Google.
-  const addToCalendar = (title, whenIso, minutes) => {
+  // Open an event in the user's chosen calendar app with a PRE-FILLED "create
+  // event" screen — Google/Outlook get their web composer URL, Apple gets an
+  // inline .ics from /api/calendar (so iPhone pops Calendar's add sheet instead
+  // of downloading a file). The choice is remembered per device; the first time,
+  // we show a chooser. Returns true if a flow was opened/queued.
+  const openInCalendar = (app, evt) => {
     try {
-      const start = new Date(whenIso);
-      const end = new Date(start.getTime() + (minutes || 60) * 60000);
-      const fmt = (d) => d.toISOString().replace(/[-:]|\.\d{3}/g, "");
-      const esc = (s) => (s || "").replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
-      const ics = [
-        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Addie//EN", "CALSCALE:GREGORIAN",
-        "BEGIN:VEVENT",
-        `UID:addie-${Date.now()}@addie.app`,
-        `DTSTAMP:${fmt(new Date())}`,
-        `DTSTART:${fmt(start)}`,
-        `DTEND:${fmt(end)}`,
-        `SUMMARY:${esc(title)}`,
-        "END:VEVENT", "END:VCALENDAR",
-      ].join("\r\n");
-      const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${(title || "event").replace(/[^\w]+/g, "-").slice(0, 40) || "event"}.ics`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      const start = new Date(evt.when);
+      if (isNaN(start.getTime())) return false;
+      const mins = evt.minutes || 60;
+      const end = new Date(start.getTime() + mins * 60000);
+      const utc = (d) => d.toISOString().replace(/[-:]|\.\d{3}/g, "");
+      const title = evt.title || "Event";
+      if (app === "google") {
+        const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${utc(start)}/${utc(end)}`;
+        window.open(url, "_blank", "noopener");
+      } else if (app === "outlook") {
+        const url = `https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${encodeURIComponent(title)}&startdt=${encodeURIComponent(start.toISOString())}&enddt=${encodeURIComponent(end.toISOString())}`;
+        window.open(url, "_blank", "noopener");
+      } else { // apple / default — inline .ics hands off to the native calendar
+        const url = `/api/calendar?title=${encodeURIComponent(title)}&start=${encodeURIComponent(start.toISOString())}&minutes=${mins}`;
+        window.location.href = url;
+      }
       return true;
     } catch { return false; }
+  };
+
+  // Remember the picked app (per device) and route this event to it.
+  const chooseCalendarApp = (app) => {
+    setCalendarApp(app);
+    try { window.localStorage.setItem("addie-calendar-app", app); } catch {}
+    const evt = pendingCal;
+    setPendingCal(null);
+    if (evt) {
+      const ok = openInCalendar(app, evt);
+      showToast(ok ? "Opening your calendar…" : "Couldn't open calendar");
+    }
+  };
+
+  // Entry point from a confirmed type:calendar suggestion.
+  const addToCalendar = (title, whenIso, minutes) => {
+    const evt = { title, when: whenIso, minutes };
+    if (calendarApp) return openInCalendar(calendarApp, evt); // already chose on this device
+    setPendingCal(evt); // first time → show the chooser
+    return true;
   };
   const fmtCalDate = (iso) => {
     try {
@@ -916,6 +950,22 @@ export default function Addie() {
     }
   };
 
+  // Durable memory: Addie saves these silently as she learns about the user.
+  const MEMORY_CAP = 50;
+  const addMemory = (text) => {
+    const t = (text || "").trim();
+    if (!t) return false;
+    const norm = (s) => s.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
+    let added = false;
+    setMemory(prev => {
+      if (prev.some(m => norm(m.text) === norm(t))) return prev; // dedupe near-identical
+      added = true;
+      return [{ id: "m" + Date.now(), text: t, createdAt: new Date().toISOString() }, ...prev].slice(0, MEMORY_CAP);
+    });
+    return added;
+  };
+  const deleteMemory = (id) => setMemory(prev => prev.filter(m => m.id !== id));
+
   const cancelReminder = (id) => {
     const r = reminders.find(x => x.id === id);
     setReminders(prev => prev.filter(x => x.id !== id));
@@ -932,6 +982,8 @@ export default function Addie() {
     const block = text.match(/SUGGESTIONS:\n([\s\S]*?)(?:\n\n|$)/);
     if (!block) return { clean: text, suggestions: [] };
     const suggestions = block[1].trim().split("\n").map((l, i) => {
+      const mem = l.match(/- type:remember \| "(.+)"/);
+      if (mem) return { id: "s"+Date.now()+i, type: "remember", text: mem[1] };
       const tim = l.match(/- type:timer \| minutes:(\d+)(?: \| label:"([^"]*)")?/);
       if (tim) return { id: "s"+Date.now()+i, type: "timer", minutes: parseInt(tim[1]), label: tim[2] || "" };
       const cal = l.match(/- type:calendar \| "(.+)" \| when:"([^"]+)"(?: \| minutes:(\d+))?/);
@@ -982,6 +1034,13 @@ export default function Addie() {
     setMessages([]); setStarted(false); setPastExpanded(false); setPending([]); setShowHistory(false);
   };
 
+  // User-written note on an archived conversation, so they can find it later.
+  const setSessionNote = (id, note) => {
+    const trimmed = (note || "").slice(0, 80);
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, note: trimmed } : s));
+    setViewingSession(v => (v && v.id === id ? { ...v, note: trimmed } : v));
+  };
+
   const sendMessage = async (userText) => {
     if (!userText.trim() || loading) return;
     // Starting a brand-new message from the landing screen (not continuing the
@@ -1001,7 +1060,7 @@ export default function Addie() {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile), messages: next.map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile, memory), messages: next.map(m => ({ role: m.role, content: m.content })) }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -1017,7 +1076,13 @@ export default function Addie() {
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
       const { clean, suggestions } = parseSuggestions(raw);
       setMessages([...next, { role: "assistant", content: clean, id: "a"+Date.now() }]);
-      if (suggestions.length) setPending(suggestions);
+      // Memories apply silently (no confirmation chip) — Addie just remembers.
+      const remembers = suggestions.filter(s => s.type === "remember");
+      const chips = suggestions.filter(s => s.type !== "remember");
+      let saved = 0;
+      remembers.forEach(s => { if (addMemory(s.text)) saved++; });
+      if (saved > 0) showToast(saved > 1 ? `✓ Addie will remember those` : `✓ Addie will remember that`);
+      if (chips.length) setPending(chips);
     } catch { setMessages([...next, { role: "assistant", content: "Connection issue. Take a breath — try again.", id: "e"+Date.now() }]); }
     setLoading(false);
   };
@@ -1043,10 +1108,14 @@ export default function Addie() {
     }
     else if (s.type === "timer") { startTimer(s.minutes, s.label); }
     else if (s.type === "calendar") {
+      // If an app is already chosen we open it now (with its own toast); otherwise
+      // addToCalendar opens the chooser and we stay quiet until they pick.
+      const hadChoice = !!calendarApp;
       const ok = addToCalendar(s.title, s.when, s.minutes);
-      showToast(ok ? "Added to your calendar" : "Couldn't open calendar");
+      if (hadChoice) showToast(ok ? "Opening your calendar…" : "Couldn't open calendar");
     }
     else if (s.type === "reminder") { scheduleReminder(s.text, s.when); }
+    else if (s.type === "remember") { addMemory(s.text); }
     else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = s.bucket==="today"&&n>=MAX_TODAY?"week":s.bucket; setTasks(p => [...p, {id:"t"+Date.now(), text:s.text, bucket:b, done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
     setPending(p => p.filter(x => x.id !== s.id));
   };
@@ -1073,15 +1142,15 @@ export default function Addie() {
   const deleteGrocery = (id) => setGrocery(p => p.filter(g => g.id!==id));
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
   const doClearAll = () => {
-    setClearBackup({ tasks, grocery });   // snapshot board + grocery so the user can undo
-    setTasks([]); setGrocery([]); setMessages([]); setReminders([]); setStarted(false); setPending([]);
+    setClearBackup({ tasks, grocery, memory });   // snapshot board + grocery + memory so the user can undo
+    setTasks([]); setGrocery([]); setMessages([]); setReminders([]); setMemory([]); setStarted(false); setPending([]);
     try{window.localStorage.removeItem(STORAGE_KEY);}catch{}
     setShowClearConfirm(false); setShowSettings(false);
     showToast("Data cleared");
   };
   const undoClear = () => {
     if (!clearBackup) return;
-    setTasks(clearBackup.tasks || []); setGrocery(clearBackup.grocery || []);
+    setTasks(clearBackup.tasks || []); setGrocery(clearBackup.grocery || []); setMemory(clearBackup.memory || []);
     setClearBackup(null);
     showToast("Board & grocery restored");
   };
@@ -1418,6 +1487,45 @@ export default function Addie() {
                 </div>
               )}
             </div>
+            <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
+              <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:600, color:C.text }}>Calendar app</p>
+              {calendarApp ? (
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, padding:"12px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2 }}>
+                  <p style={{ margin:0, fontSize:14, color:C.text }}>
+                    Events open in <strong>{calendarApp === "google" ? "Google Calendar" : calendarApp === "outlook" ? "Outlook" : "Apple Calendar"}</strong>
+                  </p>
+                  <span role="button" onClick={() => { setCalendarApp(""); try { window.localStorage.removeItem("addie-calendar-app"); } catch {}; showToast("Addie will ask next time"); }}
+                    style={{ fontSize:12.5, fontWeight:600, color:C.blueText, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"6px 13px", cursor:"pointer", backgroundColor:C.bg, flexShrink:0 }}>Change</span>
+                </div>
+              ) : (
+                <p style={{ margin:0, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>Addie will ask which calendar to use the first time you add an event on this device.</p>
+              )}
+            </div>
+            <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
+              <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:600, color:C.text }}>What Addie remembers</p>
+              <p style={{ margin:"0 0 12px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>Things Addie has picked up about you and carries between chats. Remove anything that's off.</p>
+              {memory.length === 0 ? (
+                <p style={{ margin:"0 0 12px", fontSize:13, color:C.text3, fontStyle:"italic" }}>Nothing yet — Addie will note things as you talk.</p>
+              ) : (
+                <div style={{ marginBottom:12 }}>
+                  {memory.map(m => (
+                    <div key={m.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"10px 12px", marginBottom:6, borderRadius:10, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2 }}>
+                      <p style={{ margin:0, flex:1, fontSize:13.5, color:C.text, lineHeight:1.45 }}>{m.text}</p>
+                      <span role="button" onClick={() => deleteMemory(m.id)} title="Forget this"
+                        style={{ fontSize:16, color:C.text3, cursor:"pointer", lineHeight:1, flexShrink:0, marginTop:1 }}>×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display:"flex", gap:8 }}>
+                <input value={newMemory} onChange={e => setNewMemory(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && newMemory.trim()) { addMemory(newMemory); setNewMemory(""); } }}
+                  placeholder="Add something for Addie to remember…"
+                  style={{ flex:1, fontSize:13.5, padding:"9px 12px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, outline:"none" }} />
+                <span role="button" onClick={() => { if (newMemory.trim()) { addMemory(newMemory); setNewMemory(""); } }}
+                  style={{ fontSize:13.5, fontWeight:700, color:newMemory.trim()?"#fff":C.text3, backgroundColor:newMemory.trim()?C.blue:C.bg2, border:newMemory.trim()?"none":`1.5px solid ${C.borderLt}`, borderRadius:10, padding:"9px 15px", cursor:newMemory.trim()?"pointer":"default", flexShrink:0 }}>Add</span>
+              </div>
+            </div>
             <div style={{ marginTop:22, paddingTop:18, borderTop:`1.5px solid ${C.borderLt}` }}>
               <span role="button" onClick={() => setShowClearConfirm(true)}
                 style={{ fontSize:13, color:C.danger, cursor:"pointer" }}>Clear all data…</span>
@@ -1444,8 +1552,8 @@ export default function Addie() {
               <div key={s.id} onClick={() => setViewingSession(s)} role="button"
                 style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", marginBottom:6, borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
                 <div style={{ minWidth:0 }}>
-                  {s.label && <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.label}</p>}
-                  <p style={{ margin:0, fontSize:s.label?12:14, fontWeight:s.label?400:600, color:s.label?C.text3:C.text }}>{fmtCalDate(s.startedAt)}</p>
+                  {(s.note || s.label) && <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.note || s.label}</p>}
+                  <p style={{ margin:0, fontSize:(s.note||s.label)?12:14, fontWeight:(s.note||s.label)?400:600, color:(s.note||s.label)?C.text3:C.text }}>{s.note && s.label ? `${s.label} · ` : ""}{fmtCalDate(s.startedAt)}</p>
                 </div>
                 <span style={{ fontSize:12, color:C.text3, flexShrink:0, marginLeft:10 }}>{s.messages.length} msg</span>
               </div>
@@ -1463,6 +1571,10 @@ export default function Addie() {
               {viewingSession.label && <p style={{ margin:"0 0 1px", fontWeight:600, fontSize:15, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{viewingSession.label}</p>}
               <p style={{ margin:0, fontSize:viewingSession.label?11.5:15, color:C.text2, fontWeight:viewingSession.label?400:600 }}>{fmtCalDate(viewingSession.startedAt)}</p>
             </div>
+            <input value={viewingSession.note || ""} maxLength={80}
+              onChange={e => setSessionNote(viewingSession.id, e.target.value)}
+              placeholder="✎ Add a note…"
+              style={{ flexShrink:0, width:130, fontSize:12.5, padding:"7px 10px", borderRadius:9, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, outline:"none" }} />
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"14px 16px" }}>
             {viewingSession.messages.map((m, i) => {
@@ -1475,6 +1587,36 @@ export default function Addie() {
               );
             })}
             <div style={{ height:24 }} />
+          </div>
+        </div>
+      )}
+
+      {/* Calendar app chooser — shown the first time an event is added on this device */}
+      {pendingCal && (
+        <div style={{ position:"fixed", inset:0, zIndex:97, backgroundColor:"rgba(0,0,0,0.45)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}
+          onClick={() => setPendingCal(null)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ backgroundColor:C.bg, borderRadius:"20px 20px 0 0", padding:"22px 22px calc(22px + env(safe-area-inset-bottom))", width:"100%", maxWidth:480, boxShadow:"0 -4px 30px rgba(0,0,0,0.18)" }}>
+            <h2 style={{ margin:"0 0 4px", fontSize:17, fontWeight:700, color:C.text }}>Open in which calendar?</h2>
+            <p style={{ margin:"0 0 16px", fontSize:13, color:C.text2, lineHeight:1.5 }}>We'll remember your pick for next time — change it anytime in Settings.</p>
+            {[
+              { app:"apple",   emoji:"📅", label:"Apple Calendar", hint:"iPhone, iPad & Mac" },
+              { app:"google",  emoji:"🗓️", label:"Google Calendar", hint:"Android, Gmail & web" },
+              { app:"outlook", emoji:"📧", label:"Outlook",         hint:"Microsoft 365" },
+            ].map(o => (
+              <div key={o.app} role="button" onClick={() => chooseCalendarApp(o.app)}
+                style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", marginBottom:8, borderRadius:14, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
+                <span style={{ fontSize:22, lineHeight:1 }}>{o.emoji}</span>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ margin:"0 0 1px", fontSize:15, fontWeight:600, color:C.text }}>{o.label}</p>
+                  <p style={{ margin:0, fontSize:12, color:C.text3 }}>{o.hint}</p>
+                </div>
+                <span style={{ fontSize:18, color:C.text3 }}>›</span>
+              </div>
+            ))}
+            <div style={{ textAlign:"center", marginTop:6 }}>
+              <span role="button" onClick={() => setPendingCal(null)} style={{ fontSize:13.5, color:C.text2, cursor:"pointer", padding:"8px 16px", display:"inline-block" }}>Cancel</span>
+            </div>
           </div>
         </div>
       )}
@@ -1668,8 +1810,8 @@ export default function Addie() {
                       <div key={s.id} onClick={() => setViewingSession(s)} role="button"
                         style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", marginBottom:6, borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
                         <div style={{ minWidth:0 }}>
-                          {s.label && <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.label}</p>}
-                          <p style={{ margin:0, fontSize:s.label?12:14, fontWeight:s.label?400:600, color:s.label?C.text3:C.text }}>{fmtCalDate(s.startedAt)}</p>
+                          {(s.note || s.label) && <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.note || s.label}</p>}
+                          <p style={{ margin:0, fontSize:(s.note||s.label)?12:14, fontWeight:(s.note||s.label)?400:600, color:(s.note||s.label)?C.text3:C.text }}>{s.note && s.label ? `${s.label} · ` : ""}{fmtCalDate(s.startedAt)}</p>
                         </div>
                         <span style={{ fontSize:12, color:C.text3, flexShrink:0, marginLeft:10 }}>{s.messages.length} msg</span>
                       </div>
