@@ -93,7 +93,9 @@ export default async function handler(req, res) {
       const localMinute = parseInt(parts.find(x => x.type === "minute").value);
 
       const [rHour, rMin] = p.reminderTime.split(":").map(Number);
-      if (localHour !== rHour || localMinute !== rMin) continue;
+      const currentMins = localHour * 60 + localMinute;
+      const reminderMins = rHour * 60 + rMin;
+      if (currentMins < reminderMins || currentMins >= reminderMins + 5) continue;
 
       // Check if already sent today in user's timezone
       const localDateStr = new Intl.DateTimeFormat("en-CA", { timeZone: p.reminderTz }).format(now);
