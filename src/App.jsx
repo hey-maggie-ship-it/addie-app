@@ -14,16 +14,16 @@ const IDLE_RESET_MS = 60 * 60 * 1000;
 
 // Read this device's locally-stored data (the pre-accounts data, or offline cache).
 function readLocalData() {
-  let tasks = [], grocery = [], profile = null, messages = [];
+  let tasks = [], grocery = [], profile = null, messages = [], reminders = [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; if (Array.isArray(s.messages)) messages = s.messages; }
+    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; if (Array.isArray(s.messages)) messages = s.messages; if (Array.isArray(s.reminders)) reminders = s.reminders; }
   } catch {}
   try {
     const praw = window.localStorage.getItem(PROFILE_KEY);
     if (praw) profile = JSON.parse(praw);
   } catch {}
-  return { tasks, grocery, profile, messages };
+  return { tasks, grocery, profile, messages, reminders };
 }
 
 // Union two lists of {id,...} items, keeping every unique id. On id collision,
@@ -39,8 +39,8 @@ function profileHasContent(p) {
 
 // Stable string snapshot of the synced data, used to dedupe saves and to
 // ignore the echo of our own writes coming back over Realtime.
-function snapshotJson(tasks, grocery, profile, messages = [], sessions = []) {
-  return JSON.stringify({ tasks: tasks||[], grocery: grocery||[], profile: profile||null, messages: messages||[], sessions: sessions||[] });
+function snapshotJson(tasks, grocery, profile, messages = [], sessions = [], reminders = []) {
+  return JSON.stringify({ tasks: tasks||[], grocery: grocery||[], profile: profile||null, messages: messages||[], sessions: sessions||[], reminders: reminders||[] });
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -158,6 +158,8 @@ A focus timer exists. When someone's stuck starting something, casually offer ti
 
 CALENDAR HANDOFF: When the user asks to schedule something or a specific date+time emerges, you MUST include a type:calendar suggestion in the SUGGESTIONS block. This is the ONLY way an event reaches their calendar — you cannot add it yourself. NEVER claim it's "done," "added," "scheduled," or "on your calendar" in prose without emitting the type:calendar line in the SAME reply; saying so without the suggestion is a broken promise to the user. If they asked for it, emit it now — don't wait to be asked twice. Only concrete date+time qualifies (not vague stuff like "later today"). Resolve relative dates to a concrete date and always use the correct current year (${new Date().getFullYear()} unless the user clearly means a different year).
 
+REMINDERS: When the user asks to be reminded of something at a future time or rough period ("remind me to call mom tomorrow night," "nudge me about the deposit mid next week afternoon"), include a type:reminder suggestion. A reminder sends a push notification at that time — it is NOT a calendar event and NOT a board task. Resolve any vague/relative time to a concrete local datetime, choosing a sensible specific hour: morning≈09:00, afternoon≈14:00, evening≈19:00, "mid next week"≈the coming Wednesday. Only use type:reminder when there is a time to fire at; use type:calendar for events with a place/duration, and type:task for to-dos with no specific reminder time. As with calendar, NEVER claim you've set a reminder in prose without emitting the type:reminder line in the same reply.
+
 UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'") — UPDATE the existing item by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item.
 
 SUGGESTION FORMAT:
@@ -176,6 +178,7 @@ SUGGESTIONS:
 - type:nextstep | id:TASK_ID | "next step text"
 - type:complete | id:TASK_ID
 - type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
+- type:reminder | "what to remind them about" | when:"YYYY-MM-DDTHH:MM"
 - type:timer | minutes:15 | label:"what the timer is for"
 
 Rules: Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
@@ -225,11 +228,13 @@ export default function Addie() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [sessions, setSessions] = useState([]);
+  const [reminders, setReminders] = useState([]);          // chat-scheduled push reminders
+  const [remindersExpanded, setRemindersExpanded] = useState(false);
   const [viewingSession, setViewingSession] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);   // history overlay during active chat
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearBackup, setClearBackup] = useState(null);   // snapshot for undo after clearing
   const [customMin, setCustomMin] = useState("");          // custom timer length input
-  const [listening, setListening] = useState(false);       // voice dictation active
   const [installPrompt, setInstallPrompt] = useState(null);// captured beforeinstallprompt event
   const [showInstall, setShowInstall] = useState(false);   // show "add to home screen" banner
   const bottomRef = useRef(null);
@@ -240,7 +245,6 @@ export default function Addie() {
   const wakeLockRef = useRef(null);
   const pendingPushIdRef = useRef(null);
   const alarmLoopRef = useRef(null);
-  const recognitionRef = useRef(null);
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
   // JSON of the last data we synced (saved or received), to dedupe + ignore echoes.
@@ -248,34 +252,6 @@ export default function Addie() {
 
   // Detect platform for backup alarm link
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  const speechSupported = typeof window !== "undefined" && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-
-  // Tap-to-dictate: stream speech into the chat input. (No "Hey Addie" wake word —
-  // browsers can't listen continuously in the background, so it's an explicit tap.)
-  const toggleDictation = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
-    if (listening) { try { recognitionRef.current?.stop(); } catch {} return; }
-    const rec = new SR();
-    rec.lang = navigator.language || "en-US";
-    rec.interimResults = true;
-    rec.continuous = true;
-    let finalText = input ? input.trimEnd() + " " : "";
-    rec.onresult = (e) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += t + " "; else interim += t;
-      }
-      setInput((finalText + interim).replace(/\s+/g, " ").trimStart());
-      setLastActivity(Date.now());
-    };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => { setListening(false); recognitionRef.current = null; };
-    recognitionRef.current = rec;
-    setListening(true);
-    try { rec.start(); } catch { setListening(false); }
-  };
 
   // Install-to-home-screen prompt (PWA). Android/Chrome fires beforeinstallprompt;
   // iOS has no such event, so we show manual Share→Add to Home Screen instructions.
@@ -336,6 +312,8 @@ export default function Addie() {
         if (s.grocery) setGrocery(s.grocery);
         if (s.messages) setMessages(s.messages);
         if (Array.isArray(s.sessions)) setSessions(s.sessions);
+        // Drop reminders more than a day past so the list doesn't grow forever.
+        if (Array.isArray(s.reminders)) setReminders(s.reminders.filter(r => new Date(r.when).getTime() > Date.now() - 864e5));
         if (s.lastActivity) setLastActivity(s.lastActivity);
         setStarted(false);
         setPastExpanded(false);
@@ -375,8 +353,8 @@ export default function Addie() {
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, lastActivity })); } catch {}
-  }, [tasks, grocery, messages, sessions, lastActivity, hydrated]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, reminders, lastActivity })); } catch {}
+  }, [tasks, grocery, messages, sessions, reminders, lastActivity, hydrated]);
 
   // ── Auth: track the Supabase session ──
   useEffect(() => {
@@ -399,7 +377,7 @@ export default function Addie() {
     let cancelled = false;
     (async () => {
       const [{ data, error }, { data: subData }] = await Promise.all([
-        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions").eq("user_id", session.user.id).maybeSingle(),
+        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions, reminders").eq("user_id", session.user.id).maybeSingle(),
         supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle(),
       ]);
       if (cancelled) return;
@@ -417,6 +395,7 @@ export default function Addie() {
       const cloudProfile  = data?.profile || null;
       const cloudMessages = Array.isArray(data?.messages) ? data.messages : [];
       const cloudSessions = Array.isArray(data?.sessions) ? data.sessions : [];
+      const cloudReminders = Array.isArray(data?.reminders) ? data.reminders : [];
 
       // Has THIS device already contributed its local data to THIS account?
       let alreadyMigrated = false;
@@ -428,9 +407,10 @@ export default function Addie() {
         setGrocery(cloudGrocery);
         if (cloudMessages.length > 0) setMessages(cloudMessages);
         setSessions(cloudSessions);
+        setReminders(cloudReminders);
         if (cloudProfile) { setProfile(cloudProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
-        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions);
+        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions, cloudReminders);
       } else {
         // First time this device signs into this account → merge its local data
         // into the cloud so nothing on this device is lost (union by id). Each
@@ -443,24 +423,26 @@ export default function Addie() {
         // Migrate local messages to cloud on first sign-in if cloud is empty
         const mergedMessages = cloudMessages.length > 0 ? cloudMessages : (local.messages || []);
         const mergedSessions = cloudSessions;
+        const mergedReminders = mergeById(cloudReminders, local.reminders);
 
         setTasks(mergedTasks);
         setGrocery(mergedGrocery);
         if (mergedMessages.length > 0) setMessages(mergedMessages);
         setSessions(mergedSessions);
+        setReminders(mergedReminders);
         if (mergedProfile) { setProfile(mergedProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
 
         const { error: upErr } = await supabase.from("user_data").upsert({
           user_id: session.user.id,
           tasks: mergedTasks, grocery: mergedGrocery, profile: mergedProfile,
-          messages: mergedMessages, sessions: mergedSessions,
+          messages: mergedMessages, sessions: mergedSessions, reminders: mergedReminders,
           updated_at: new Date().toISOString(),
         });
         if (!upErr) {
           try { window.localStorage.setItem(MIGRATED_KEY, session.user.id); } catch {}
         }
-        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile, mergedMessages, mergedSessions);
+        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile, mergedMessages, mergedSessions, mergedReminders);
       }
       setSubscription(subData?.status === "active" ? "active" : "free");
       setCloudLoaded(true);
@@ -472,18 +454,18 @@ export default function Addie() {
   // Debounced to batch edits; ALSO flushed immediately when the app is hidden
   // (mobile browsers can freeze a pending timer and lose the write otherwise).
   // A ref holds the latest snapshot so out-of-render flushes never go stale.
-  const latestRef = useRef({ tasks, grocery, profile, messages, sessions });
-  useEffect(() => { latestRef.current = { tasks, grocery, profile, messages, sessions }; }, [tasks, grocery, profile, messages, sessions]);
+  const latestRef = useRef({ tasks, grocery, profile, messages, sessions, reminders });
+  useEffect(() => { latestRef.current = { tasks, grocery, profile, messages, sessions, reminders }; }, [tasks, grocery, profile, messages, sessions, reminders]);
 
   const saveToCloud = useCallback(() => {
     if (!session || !cloudLoaded) return;
     const d = latestRef.current;
-    const json = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions);
+    const json = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions, d.reminders);
     if (json === lastSyncedRef.current) return; // nothing changed since last sync (incl. our own echoes)
     lastSyncedRef.current = json;
     supabase.from("user_data").upsert({
       user_id: session.user.id,
-      tasks: d.tasks, grocery: d.grocery, profile: d.profile, messages: d.messages, sessions: d.sessions,
+      tasks: d.tasks, grocery: d.grocery, profile: d.profile, messages: d.messages, sessions: d.sessions, reminders: d.reminders,
       updated_at: new Date().toISOString(),
     }).then(({ error }) => {
       if (error) {
@@ -498,7 +480,7 @@ export default function Addie() {
     if (!session || !cloudLoaded) return;
     const t = setTimeout(saveToCloud, 500);
     return () => clearTimeout(t);
-  }, [tasks, grocery, profile, messages, sessions, session, cloudLoaded, saveToCloud]);
+  }, [tasks, grocery, profile, messages, sessions, reminders, session, cloudLoaded, saveToCloud]);
 
   // Mobile-safe: save immediately when the app is hidden/closed.
   useEffect(() => {
@@ -526,8 +508,9 @@ export default function Addie() {
           const rGrocery  = Array.isArray(row.grocery)  ? row.grocery  : [];
           const rMessages = Array.isArray(row.messages) ? row.messages : [];
           const rSessions = Array.isArray(row.sessions) ? row.sessions : [];
+          const rReminders = Array.isArray(row.reminders) ? row.reminders : [];
           const rProfile  = row.profile || null;
-          const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions);
+          const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions, rReminders);
           // Ignore our own echo / anything identical to what we already have.
           if (incoming === lastSyncedRef.current) return;
           lastSyncedRef.current = incoming;
@@ -535,6 +518,7 @@ export default function Addie() {
           setGrocery(rGrocery);
           if (rMessages.length > 0) setMessages(rMessages);
           setSessions(rSessions);
+          setReminders(rReminders);
           if (rProfile) { setProfile(rProfile); setOnboarded(true); }
           else { setProfile(null); setOnboarded(false); }
         }
@@ -817,6 +801,44 @@ export default function Addie() {
     } catch { return iso; }
   };
 
+  // Schedule a chat-requested reminder: store it for the Board section AND book a
+  // server-side push (via the same pending_pushes infra timers use) so it fires
+  // even when the app is closed.
+  const scheduleReminder = async (text, whenIso) => {
+    const when = new Date(whenIso);
+    if (isNaN(when.getTime()) || when.getTime() < Date.now() + 30000) {
+      showToast("That reminder time has already passed");
+      return;
+    }
+    const rid = "r" + Date.now();
+    setReminders(prev => [{ id: rid, text, when: when.toISOString(), pushId: null, createdAt: new Date().toISOString(), done: false }, ...prev]);
+    showToast("Reminder set");
+    if (Notification.permission !== "granted") await requestNotifPermission();
+    if (session && Notification.permission === "granted") {
+      try {
+        const res = await fetch("/api/push-schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ title: "⏰ Reminder", body: text, sendAt: when.toISOString(), requireInteraction: true }),
+        });
+        const data = await res.json();
+        if (data?.id) setReminders(prev => prev.map(r => r.id === rid ? { ...r, pushId: data.id } : r));
+      } catch {}
+    }
+  };
+
+  const cancelReminder = (id) => {
+    const r = reminders.find(x => x.id === id);
+    setReminders(prev => prev.filter(x => x.id !== id));
+    if (r?.pushId && session) {
+      fetch("/api/push-cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ pushId: r.pushId }),
+      }).catch(() => {});
+    }
+  };
+
   const parseSuggestions = (text) => {
     const block = text.match(/SUGGESTIONS:\n([\s\S]*?)(?:\n\n|$)/);
     if (!block) return { clean: text, suggestions: [] };
@@ -825,6 +847,8 @@ export default function Addie() {
       if (tim) return { id: "s"+Date.now()+i, type: "timer", minutes: parseInt(tim[1]), label: tim[2] || "" };
       const cal = l.match(/- type:calendar \| "(.+)" \| when:"([^"]+)"(?: \| minutes:(\d+))?/);
       if (cal) return { id: "s"+Date.now()+i, type: "calendar", title: cal[1], when: cal[2], minutes: cal[3] ? parseInt(cal[3]) : 60 };
+      const rem = l.match(/- type:reminder \| "(.+)" \| when:"([^"]+)"/);
+      if (rem) return { id: "s"+Date.now()+i, type: "reminder", text: rem[1], when: rem[2] };
       const comp = l.match(/- type:complete \| id:(\S+)/);
       if (comp) return { id: "s"+Date.now()+i, type: "complete", targetId: comp[1] };
       const grm = l.match(/- type:grocery-remove \| id:(\S+)/);
@@ -850,24 +874,35 @@ export default function Addie() {
     return { clean: text.replace(/SUGGESTIONS:\n[\s\S]*?(?:\n\n|$)/, "").trim(), suggestions };
   };
 
+  // Archive a finished conversation into the read-only history list.
+  const archiveMessages = (msgs) => {
+    if (!msgs || msgs.length === 0) return;
+    const firstUser = msgs.find(m => m.role === "user");
+    const starter = firstUser ? STARTERS.find(s => s.prompt === firstUser.content) : null;
+    const ts = parseInt((msgs[0]?.id || "").replace(/^\D+/, "") || String(Date.now()), 10);
+    setSessions(prev => [{
+      id: "s" + Date.now(),
+      startedAt: new Date(isNaN(ts) ? Date.now() : ts).toISOString(),
+      label: starter?.label || null,
+      messages: msgs,
+    }, ...prev].slice(0, 30));
+  };
+
   const startNewSession = () => {
-    if (messages.length > 0) {
-      const firstUser = messages.find(m => m.role === "user");
-      const starter = firstUser ? STARTERS.find(s => s.prompt === firstUser.content) : null;
-      const ts = parseInt((messages[0]?.id || "").replace(/^\D+/, "") || String(Date.now()), 10);
-      setSessions(prev => [{
-        id: "s" + Date.now(),
-        startedAt: new Date(isNaN(ts) ? Date.now() : ts).toISOString(),
-        label: starter?.label || null,
-        messages,
-      }, ...prev].slice(0, 30));
-    }
-    setMessages([]); setStarted(false); setPending([]);
+    archiveMessages(messages);
+    setMessages([]); setStarted(false); setPastExpanded(false); setPending([]); setShowHistory(false);
   };
 
   const sendMessage = async (userText) => {
     if (!userText.trim() || loading) return;
-    const next = [...messages, { role: "user", content: userText, id: "u"+Date.now() }];
+    // Starting a brand-new message from the landing screen (not continuing the
+    // previous chat) → archive the old conversation so it doesn't expand inline.
+    let base = messages;
+    if (!started && !pastExpanded && messages.length > 0) {
+      archiveMessages(messages);
+      base = [];
+    }
+    const next = [...base, { role: "user", content: userText, id: "u"+Date.now() }];
     setMessages(next); setInput(""); setLoading(true); setStarted(true); setPending([]); setLastActivity(Date.now());
     if (taRef.current) { taRef.current.style.height = "auto"; }
     try {
@@ -922,6 +957,7 @@ export default function Addie() {
       const ok = addToCalendar(s.title, s.when, s.minutes);
       showToast(ok ? "Added to your calendar" : "Couldn't open calendar");
     }
+    else if (s.type === "reminder") { scheduleReminder(s.text, s.when); }
     else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = s.bucket==="today"&&n>=MAX_TODAY?"week":s.bucket; setTasks(p => [...p, {id:"t"+Date.now(), text:s.text, bucket:b, done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
     setPending(p => p.filter(x => x.id !== s.id));
   };
@@ -949,7 +985,7 @@ export default function Addie() {
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
   const doClearAll = () => {
     setClearBackup({ tasks, grocery });   // snapshot board + grocery so the user can undo
-    setTasks([]); setGrocery([]); setMessages([]); setStarted(false); setPending([]);
+    setTasks([]); setGrocery([]); setMessages([]); setReminders([]); setStarted(false); setPending([]);
     try{window.localStorage.removeItem(STORAGE_KEY);}catch{}
     setShowClearConfirm(false); setShowSettings(false);
     showToast("Data cleared");
@@ -1304,6 +1340,30 @@ export default function Addie() {
         </div>
       )}
 
+      {/* Past-sessions list overlay (opened from header during active chat) */}
+      {showHistory && (
+        <div style={{ position:"fixed", inset:0, zIndex:89, backgroundColor:C.bg, maxWidth:720, margin:"0 auto", display:"flex", flexDirection:"column" }}>
+          <div style={{ padding:"calc(14px + env(safe-area-inset-top)) 18px 14px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+            <span role="button" onClick={() => setShowHistory(false)} style={{ fontSize:22, color:C.text2, cursor:"pointer", lineHeight:1 }}>←</span>
+            <p style={{ margin:0, fontWeight:600, fontSize:16, color:C.text }}>Past sessions</p>
+          </div>
+          <div style={{ flex:1, overflowY:"auto", padding:"16px" }}>
+            {sessions.length === 0 ? (
+              <p style={{ fontSize:14, color:C.text3, fontStyle:"italic", textAlign:"center", marginTop:24 }}>No past sessions yet.</p>
+            ) : sessions.map(s => (
+              <div key={s.id} onClick={() => setViewingSession(s)} role="button"
+                style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", marginBottom:6, borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
+                <div style={{ minWidth:0 }}>
+                  {s.label && <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.label}</p>}
+                  <p style={{ margin:0, fontSize:s.label?12:14, fontWeight:s.label?400:600, color:s.label?C.text3:C.text }}>{fmtCalDate(s.startedAt)}</p>
+                </div>
+                <span style={{ fontSize:12, color:C.text3, flexShrink:0, marginLeft:10 }}>{s.messages.length} msg</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Session history overlay (read-only) */}
       {viewingSession && (
         <div style={{ position:"fixed", inset:0, zIndex:90, backgroundColor:C.bg, maxWidth:720, margin:"0 auto", display:"flex", flexDirection:"column" }}>
@@ -1425,7 +1485,11 @@ export default function Addie() {
           <p style={{ margin:0, fontWeight:600, fontSize:15, color:C.text }}>Addie</p>
           <p style={{ margin:0, fontSize:11.5, color:C.text3 }}>clarity for a busy brain</p>
         </div>
-        {tab==="chat" && messages.length>0 && (
+        {tab==="chat" && sessions.length>0 && (
+          <span onClick={() => setShowHistory(true)} role="button" title="Past sessions"
+            style={{ fontSize:18, lineHeight:1, color:C.text3, cursor:"pointer", flexShrink:0, padding:"2px" }}>🕘</span>
+        )}
+        {tab==="chat" && messages.length>0 && (started || pastExpanded) && (
           <span onClick={startNewSession} role="button"
             style={{ fontSize:12, color:C.text2, backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:8, padding:"6px 12px", cursor:"pointer" }}>New session</span>
         )}
@@ -1497,10 +1561,10 @@ export default function Addie() {
                   ))}
                 </div>
                 {messages.length > 0 && !pastExpanded && (
-                  <div onClick={() => setPastExpanded(true)} role="button"
+                  <div onClick={() => { setPastExpanded(true); setStarted(true); }} role="button"
                     style={{ marginTop:18, padding:"12px 14px", backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
                     <span style={{ fontSize:13, color:C.text2 }}>↑ Continue where you left off · {messages.length} messages</span>
-                    <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>Show</span>
+                    <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>Continue</span>
                   </div>
                 )}
                 {sessions.length > 0 && (
@@ -1557,14 +1621,16 @@ export default function Addie() {
                               : s.type==="nextstep" ? {bg:"#EDE9FE",text:"#5B21B6",label:"Next step"}
                               : s.type==="complete" ? {bg:C.greenBg,text:C.greenText,label:"Mark done"}
                               : s.type==="calendar" ? {bg:"#FEF3C7",text:"#92400E",label:"Calendar"}
+                              : s.type==="reminder" ? {bg:"#EDE9FE",text:"#5B21B6",label:"Reminder"}
                               : s.type==="timer" ? {bg:C.blueBg,text:C.blueText,label:"Timer"}
                               : BUCKET_STYLE[s.bucket];
                     const taskRef = s.type==="complete" ? tasks.find(t=>t.id===s.targetId)?.text : null;
                     const removeRef = s.type==="grocery-remove" ? grocery.find(g=>g.id===s.targetId)?.text : null;
                     const display = s.type==="calendar" ? `${s.title} · ${fmtCalDate(s.when)}`
+                                    : s.type==="reminder" ? `${s.text} · ${fmtCalDate(s.when)}`
                                     : s.type==="timer" ? `${s.minutes} min${s.label?` · ${s.label}`:""}`
                                     : (taskRef || removeRef || s.text);
-                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="timer" ? "Start" : s.type==="grocery-remove" ? "Remove" : "Confirm";
+                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="reminder" ? "Set reminder" : s.type==="timer" ? "Start" : s.type==="grocery-remove" ? "Remove" : "Confirm";
                     return (
                       <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, backgroundColor:C.bg, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"10px 14px" }}>
                         <Badge bg={bs.bg} color={bs.text}>{bs.label}</Badge>
@@ -1600,6 +1666,28 @@ export default function Addie() {
                     <span onClick={(e) => { e.stopPropagation(); deleteTask(t.id); }} role="button" style={{ cursor:"pointer", color:C.text3, fontSize:15, padding:4 }}>✕</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {reminders.filter(r=>!r.done).length>0 && (
+              <div style={{ marginBottom:24 }}>
+                <div onClick={() => setRemindersExpanded(!remindersExpanded)} role="button"
+                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 0", cursor:"pointer" }}>
+                  <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {reminders.filter(r=>!r.done).length}</p>
+                  <span style={{ fontSize:12, color:C.text2, fontWeight:600 }}>{remindersExpanded ? "Hide" : "Show"}</span>
+                </div>
+                {remindersExpanded && [...reminders].filter(r=>!r.done).sort((a,b)=> new Date(a.when) - new Date(b.when)).map(r => {
+                  const past = new Date(r.when).getTime() < Date.now();
+                  return (
+                    <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.borderLt}` }}>
+                      <span style={{ fontSize:15, flexShrink:0, opacity:past?0.4:1 }}>⏰</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ margin:0, fontSize:13.5, color:past?C.text3:C.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.text}</p>
+                        <p style={{ margin:"1px 0 0", fontSize:11.5, color:C.text3 }}>{past ? "Sent · " : ""}{fmtCalDate(r.when)}</p>
+                      </div>
+                      <span onClick={() => cancelReminder(r.id)} role="button" style={{ cursor:"pointer", color:C.text3, fontSize:15, padding:4, flexShrink:0 }}>✕</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <div style={{ borderTop:`1.5px solid ${C.borderLt}`, paddingTop:18 }}>
@@ -1757,10 +1845,6 @@ export default function Addie() {
             placeholder="Message Addie… (Ctrl+Enter to send)" rows={2}
             style={{ flex:1, resize:"none", fontSize:16, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
-          {speechSupported && (
-            <span onClick={toggleDictation} role="button" title={listening ? "Stop dictation" : "Dictate"}
-              style={{ width:44, height:44, borderRadius:"50%", backgroundColor: listening ? C.danger : C.bg2, border:`1.5px solid ${listening ? C.danger : C.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color: listening ? "#fff" : C.text2, marginBottom:2, animation: listening ? "micPulse 1s ease-in-out infinite alternate" : "none" }}>🎤</span>
-          )}
           <span onClick={() => sendMessage(input)} role="button"
             style={{ width:44, height:44, borderRadius:"50%", backgroundColor:input.trim()&&!loading?C.blue:C.bg2, cursor:input.trim()&&!loading?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color:input.trim()&&!loading?"#fff":C.text3, fontWeight:700, marginBottom:2 }}>↑</span>
         </div>
@@ -1807,10 +1891,6 @@ export default function Addie() {
         @keyframes bounce {
           0%   { transform: translateY(0px); }
           100% { transform: translateY(-12px); }
-        }
-        @keyframes micPulse {
-          0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
-          100% { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
         }
         * { box-sizing: border-box; }
       `}</style>
