@@ -1593,9 +1593,9 @@ export default function Addie() {
           <div style={{ padding:"14px 16px" }}>
             {(!started || messages.length === 0) && (
               <div>
-                <div style={{ textAlign:"center", padding:"4px 0 20px" }}>
-                  <div style={{ width:46, height:46, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 10px", fontSize:23 }}>🧠</div>
-                  <h3 style={{ margin:"0 0 4px", fontSize:19, fontWeight:600, color:C.text }}>Hey, how's it going?</h3>
+                <div style={{ textAlign:"center", padding:"2px 0 14px" }}>
+                  <div style={{ width:40, height:40, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 8px", fontSize:20 }}>🧠</div>
+                  <h3 style={{ margin:"0 0 3px", fontSize:18, fontWeight:600, color:C.text }}>Hey, how's it going?</h3>
                   <p style={{ margin:0, fontSize:13, color:C.text3 }}>Pick a starting point, or just tell me what's up.</p>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
@@ -1606,15 +1606,26 @@ export default function Addie() {
                     </div>
                   ))}
                 </div>
-                {messages.length > 0 && !pastExpanded && (
-                  <div onClick={() => { setPastExpanded(true); setStarted(true); }} role="button"
-                    style={{ marginTop:18, padding:"12px 14px", backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
-                    <span style={{ fontSize:13, color:C.text2 }}>↑ Continue where you left off · {messages.length} messages</span>
-                    <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>Continue</span>
-                  </div>
-                )}
+                {messages.length > 0 && !pastExpanded && (() => {
+                  const last = messages[messages.length - 1];
+                  const preview = (last?.content || "").replace(/\s+/g, " ").trim();
+                  return (
+                    <div onClick={() => { setPastExpanded(true); setStarted(true); }} role="button"
+                      style={{ marginTop:14, padding:"12px 14px", backgroundColor:C.bg2, border:`1.5px solid ${C.blueBorder}`, borderRadius:12, cursor:"pointer" }}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:preview?5:0 }}>
+                        <span style={{ fontSize:12, color:C.text3, fontWeight:600 }}>Continue where you left off · {messages.length} messages</span>
+                        <span style={{ fontSize:12, color:C.blueText, fontWeight:700, flexShrink:0, marginLeft:8 }}>Continue ↓</span>
+                      </div>
+                      {preview && (
+                        <p style={{ margin:0, fontSize:13, color:C.text2, lineHeight:1.4, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" }}>
+                          <span style={{ fontWeight:600, color:C.text3 }}>{last.role==="user" ? "You: " : "Addie: "}</span>{preview}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
                 {sessions.length > 0 && (
-                  <div style={{ marginTop:24 }}>
+                  <div style={{ marginTop:20 }}>
                     <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Recent</p>
                     {sessions.slice(0, 15).map(s => (
                       <div key={s.id} onClick={() => setViewingSession(s)} role="button"
