@@ -12,10 +12,17 @@ dist
 dist-ssr
 *.local
 
-# Env files with secrets (keep .env.example tracked)
+# Env files with secrets (keep .env.example and dummy .env.test tracked)
 .env
 .env.*
 !.env.example
+!.env.test
+
+# Playwright
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache
 
 # Editor directories and files
 .vscode/*

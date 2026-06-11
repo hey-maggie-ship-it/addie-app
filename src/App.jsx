@@ -229,6 +229,9 @@ export default function Addie() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearBackup, setClearBackup] = useState(null);   // snapshot for undo after clearing
   const [customMin, setCustomMin] = useState("");          // custom timer length input
+  const [listening, setListening] = useState(false);       // voice dictation active
+  const [installPrompt, setInstallPrompt] = useState(null);// captured beforeinstallprompt event
+  const [showInstall, setShowInstall] = useState(false);   // show "add to home screen" banner
   const bottomRef = useRef(null);
   const taRef = useRef(null);
   const timerRef = useRef(null);
@@ -237,6 +240,7 @@ export default function Addie() {
   const wakeLockRef = useRef(null);
   const pendingPushIdRef = useRef(null);
   const alarmLoopRef = useRef(null);
+  const recognitionRef = useRef(null);
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
   // JSON of the last data we synced (saved or received), to dedupe + ignore echoes.
@@ -244,6 +248,57 @@ export default function Addie() {
 
   // Detect platform for backup alarm link
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const speechSupported = typeof window !== "undefined" && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  // Tap-to-dictate: stream speech into the chat input. (No "Hey Addie" wake word —
+  // browsers can't listen continuously in the background, so it's an explicit tap.)
+  const toggleDictation = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    if (listening) { try { recognitionRef.current?.stop(); } catch {} return; }
+    const rec = new SR();
+    rec.lang = navigator.language || "en-US";
+    rec.interimResults = true;
+    rec.continuous = true;
+    let finalText = input ? input.trimEnd() + " " : "";
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t + " "; else interim += t;
+      }
+      setInput((finalText + interim).replace(/\s+/g, " ").trimStart());
+      setLastActivity(Date.now());
+    };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => { setListening(false); recognitionRef.current = null; };
+    recognitionRef.current = rec;
+    setListening(true);
+    try { rec.start(); } catch { setListening(false); }
+  };
+
+  // Install-to-home-screen prompt (PWA). Android/Chrome fires beforeinstallprompt;
+  // iOS has no such event, so we show manual Share→Add to Home Screen instructions.
+  useEffect(() => {
+    const standalone = window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone;
+    let dismissed = false;
+    try { dismissed = window.localStorage.getItem("addie_install_dismissed") === "1"; } catch {}
+    if (standalone || dismissed) return;
+    const onBIP = (e) => { e.preventDefault(); setInstallPrompt(e); setShowInstall(true); };
+    window.addEventListener("beforeinstallprompt", onBIP);
+    if (isIOS) setShowInstall(true);
+    return () => window.removeEventListener("beforeinstallprompt", onBIP);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doInstall = async () => {
+    if (!installPrompt) return;
+    try { installPrompt.prompt(); await installPrompt.userChoice; } catch {}
+    setInstallPrompt(null); setShowInstall(false);
+  };
+  const dismissInstall = () => {
+    setShowInstall(false);
+    try { window.localStorage.setItem("addie_install_dismissed", "1"); } catch {}
+  };
 
   // Play a tone via WebAudio — works on foreground user-gesture contexts
   const playTone = () => {
@@ -1198,9 +1253,17 @@ export default function Addie() {
                 </div>
               )}
               {onboardDraft.reminderEnabled && notifPermission !== "granted" && (
-                <p style={{ margin:"0 0 6px", fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>
-                  ⚠️ You'll need to allow notifications for reminders to work — start a timer first to grant permission.
-                </p>
+                <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", borderRadius:12, border:`1.5px solid #FDE68A`, backgroundColor:"#FFFBEB", marginBottom:10 }}>
+                  <p style={{ margin:0, flex:1, fontSize:12.5, color:"#92400E", lineHeight:1.5 }}>
+                    {notifPermission === "denied"
+                      ? "Notifications are blocked in your browser — re-allow them in site settings for reminders to reach you."
+                      : "Reminders need permission to send you notifications."}
+                  </p>
+                  {notifPermission !== "denied" && (
+                    <span role="button" onClick={requestNotifPermission}
+                      style={{ fontSize:12.5, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:8, padding:"7px 13px", cursor:"pointer", flexShrink:0 }}>Enable</span>
+                  )}
+                </div>
               )}
             </div>
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
@@ -1369,6 +1432,21 @@ export default function Addie() {
         <span onClick={openSettings} role="button" title="Preferences"
           style={{ fontSize:20, lineHeight:1, color:C.text3, cursor:"pointer", flexShrink:0, padding:"2px" }}>⚙️</span>
       </div>
+
+      {showInstall && (
+        <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 18px", backgroundColor:C.blueBg, borderBottom:`1px solid ${C.blueBorder}`, flexShrink:0 }}>
+          <span style={{ fontSize:16, flexShrink:0 }}>📲</span>
+          {installPrompt ? (
+            <>
+              <span style={{ flex:1, fontSize:12.5, color:C.blueText, lineHeight:1.4 }}>Install Addie for alarms that fire even when the app is closed.</span>
+              <span role="button" onClick={doInstall} style={{ fontSize:12.5, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:8, padding:"6px 12px", cursor:"pointer", flexShrink:0 }}>Install</span>
+            </>
+          ) : (
+            <span style={{ flex:1, fontSize:12.5, color:C.blueText, lineHeight:1.4 }}>Add Addie to your Home Screen: tap <strong>Share ⬆︎</strong> then <strong>Add to Home Screen</strong>.</span>
+          )}
+          <span role="button" onClick={dismissInstall} style={{ fontSize:14, color:C.blueText, cursor:"pointer", lineHeight:1, flexShrink:0 }}>✕</span>
+        </div>
+      )}
 
       {notifPermission === "denied" && (
         <div style={{ padding:"10px 18px", backgroundColor:"#FEF3C7", borderBottom:`1px solid #FDE68A`, flexShrink:0 }}>
@@ -1549,7 +1627,7 @@ export default function Addie() {
                 {notifPermission === "default" && (
                   <div style={{ margin:"0 auto 20px", padding:"12px 16px", backgroundColor:"#EFF6FF", border:`1px solid ${C.blueBorder}`, borderRadius:12, maxWidth:320, textAlign:"left" }}>
                     <p style={{ margin:0, fontSize:12.5, color:C.blueText, lineHeight:1.5 }}>
-                      📣 <strong>Starting a timer will ask for notification permission</strong> — allow it so your alarm fires even if the screen turns off.
+                      📣 <strong>The first timer asks to send notifications</strong> — allow it once, and your alarm sounds even if your screen is off.
                     </p>
                   </div>
                 )}
@@ -1600,7 +1678,7 @@ export default function Addie() {
                   <div style={{ margin:"22px auto 0", maxWidth:320, padding:"12px 14px", backgroundColor:notifPermission==="granted"?C.greenBg:C.bg2, border:`1px solid ${notifPermission==="granted"?"#6EE7B7":C.borderLt}`, borderRadius:12, textAlign:"left" }}>
                     {notifPermission === "granted" ? (
                       <p style={{ margin:0, fontSize:12.5, color:C.greenText, lineHeight:1.5 }}>
-                        📳 <strong>Push notifications are on</strong> — you'll get an alarm even if the screen locks.
+                        📳 <strong>Notifications are on</strong> — your alarm will sound even if your screen is locked or this tab is closed.
                       </p>
                     ) : (
                       <>
@@ -1679,6 +1757,10 @@ export default function Addie() {
             placeholder="Message Addie… (Ctrl+Enter to send)" rows={2}
             style={{ flex:1, resize:"none", fontSize:16, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
+          {speechSupported && (
+            <span onClick={toggleDictation} role="button" title={listening ? "Stop dictation" : "Dictate"}
+              style={{ width:44, height:44, borderRadius:"50%", backgroundColor: listening ? C.danger : C.bg2, border:`1.5px solid ${listening ? C.danger : C.border}`, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color: listening ? "#fff" : C.text2, marginBottom:2, animation: listening ? "micPulse 1s ease-in-out infinite alternate" : "none" }}>🎤</span>
+          )}
           <span onClick={() => sendMessage(input)} role="button"
             style={{ width:44, height:44, borderRadius:"50%", backgroundColor:input.trim()&&!loading?C.blue:C.bg2, cursor:input.trim()&&!loading?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color:input.trim()&&!loading?"#fff":C.text3, fontWeight:700, marginBottom:2 }}>↑</span>
         </div>
@@ -1725,6 +1807,10 @@ export default function Addie() {
         @keyframes bounce {
           0%   { transform: translateY(0px); }
           100% { transform: translateY(-12px); }
+        }
+        @keyframes micPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+          100% { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
         }
         * { box-sizing: border-box; }
       `}</style>
