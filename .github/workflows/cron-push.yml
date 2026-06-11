@@ -11,5 +11,5 @@ jobs:
     steps:
       - name: Trigger cron-push
         run: |
-          curl -sf "${{ secrets.APP_URL }}/api/cron-push" \
+          curl -sfL "${{ secrets.APP_URL }}/api/cron-push" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
