@@ -391,9 +391,15 @@ export default function Addie() {
         // Drop reminders more than a day past so the list doesn't grow forever.
         if (Array.isArray(s.reminders)) setReminders(s.reminders.filter(r => new Date(r.when).getTime() > Date.now() - 864e5));
         if (Array.isArray(s.memory)) setMemory(s.memory);
+        if (typeof s.notes === "string") setNotes(s.notes);
         if (s.lastActivity) setLastActivity(s.lastActivity);
-        setStarted(false);
-        setPastExpanded(false);
+        // If there's a recent, unfinished conversation, drop the user straight back
+        // into it instead of the welcome screen + "Continue where you left off".
+        // After a long gap (idle), fall back to the fresh-start landing view.
+        const recentConvo = Array.isArray(s.messages) && s.messages.length > 0
+          && s.lastActivity && (Date.now() - s.lastActivity <= IDLE_RESET_MS);
+        setStarted(!!recentConvo);
+        setPastExpanded(!!recentConvo);
       }
     } catch {}
     try {
