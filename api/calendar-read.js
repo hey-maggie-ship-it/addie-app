@@ -58,36 +58,47 @@ function unescapeText(s) {
 // floatingOffsetMin: the user's tz offset (minutes, e.g. +540 for JST). Floating
 // and TZID times are assumed to be in the user's own timezone — true for almost
 // every personal calendar — so we anchor wall-clock components with that offset.
-function parseDate(value, params, floatingOffsetMin) {
+// Returns LOCAL wall-clock components { Y, Mo, D, H, M, allDay }. We do all
+// recurrence/weekday math in local wall-clock space (not UTC instants) so a
+// large tz offset like Okinawa's +9 can't shift an event across the UTC day
+// boundary and silently break BYDAY/weekly matching. UTC ("Z") times are first
+// converted into the user's local wall clock; floating/TZID are assumed local.
+function parseDate(value, params, offsetMin) {
   const m = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
   if (!m) return null;
-  const [, Y, Mo, D, h, mi, s, z] = m;
-  const allDay = params.VALUE === "DATE" || h === undefined;
-  if (allDay) {
-    // Anchor all-day at local midnight so the calendar date is preserved.
-    const utc = Date.UTC(+Y, +Mo - 1, +D, 0, 0, 0) - floatingOffsetMin * 60000;
-    return { instant: new Date(utc), allDay: true, wall: { Y:+Y, Mo:+Mo, D:+D } };
+  let Y = +m[1], Mo = +m[2], D = +m[3];
+  const allDay = params.VALUE === "DATE" || m[4] === undefined;
+  let H = allDay ? 0 : +m[4], M = allDay ? 0 : +m[5];
+  if (m[7]) {
+    // UTC → user's local wall components.
+    const local = new Date(Date.UTC(Y, Mo - 1, D, H, M, 0) + offsetMin * 60000);
+    Y = local.getUTCFullYear(); Mo = local.getUTCMonth() + 1; D = local.getUTCDate();
+    H = local.getUTCHours(); M = local.getUTCMinutes();
   }
-  if (z) {
-    return { instant: new Date(Date.UTC(+Y, +Mo - 1, +D, +h, +mi, +s)), allDay: false, utc: true };
-  }
-  // Floating or TZID: treat components as the user's local wall time.
-  const utc = Date.UTC(+Y, +Mo - 1, +D, +h, +mi, +s) - floatingOffsetMin * 60000;
-  return { instant: new Date(utc), allDay: false };
+  return { Y, Mo, D, H, M, allDay };
+}
+
+// Absolute instant (ms) for a local wall-clock time at the user's offset.
+function instantOf(c, offsetMin) {
+  return Date.UTC(c.Y, c.Mo - 1, c.D, c.H || 0, c.M || 0, 0) - offsetMin * 60000;
 }
 
 const DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 
-// Expand a (possibly recurring) event into occurrences whose START falls in
-// [windowStart, windowEnd]. Supports the common personal-calendar cases:
-// FREQ=DAILY/WEEKLY/MONTHLY with INTERVAL, BYDAY, COUNT, UNTIL. Anything fancier
-// just yields the single base occurrence.
-function expand(ev, windowStart, windowEnd) {
-  const base = ev.start.instant;
+// Expand a (possibly recurring) event into occurrence instants (ms) whose START
+// falls in [windowStart, windowEnd]. Common personal-calendar cases only:
+// FREQ=DAILY/WEEKLY/MONTHLY with INTERVAL, BYDAY, COUNT, UNTIL. Recurrence is
+// walked over local calendar days, so weekday matching is offset-safe.
+function expand(ev, windowStart, windowEnd, offsetMin) {
+  const start = ev.start;                                  // local wall comps
   const out = [];
-  const push = (d) => { if (d >= windowStart && d <= windowEnd) out.push(d); };
+  const within = (inst) => inst >= windowStart && inst <= windowEnd;
 
-  if (!ev.rrule) { push(base); return out; }
+  if (!ev.rrule) {
+    const inst = instantOf(start, offsetMin);
+    if (within(inst)) out.push(inst);
+    return out;
+  }
 
   const r = {};
   for (const part of ev.rrule.split(";")) {
@@ -97,36 +108,45 @@ function expand(ev, windowStart, windowEnd) {
   const freq = r.FREQ;
   const interval = Math.max(parseInt(r.INTERVAL, 10) || 1, 1);
   const count = r.COUNT ? parseInt(r.COUNT, 10) : Infinity;
-  const until = r.UNTIL ? parseDate(r.UNTIL, {}, 0)?.instant : null;
+  const untilComps = r.UNTIL ? parseDate(r.UNTIL, {}, offsetMin) : null;
+  const untilInst = untilComps ? instantOf(untilComps, offsetMin) : null;
   const byday = r.BYDAY ? r.BYDAY.split(",").map(d => d.slice(-2)) : null;
 
-  const hardStop = Math.min(windowEnd.getTime(), until ? until.getTime() : Infinity);
-  let emitted = 0;
-  // Walk day by day from the base date; cheap and bounded by the 7-day window.
-  const cursor = new Date(base.getTime());
-  const guardEnd = new Date(hardStop + 86400000);
-  let stepCount = 0;
-  while (cursor <= guardEnd && emitted < count && stepCount < 800) {
+  // Walk local calendar days using a UTC-midnight key built from local comps.
+  const baseMid = Date.UTC(start.Y, start.Mo - 1, start.D);
+  const baseDow = new Date(baseMid).getUTCDay();
+  // Stop a little past the window (in local-day terms) to be safe.
+  const guardInstant = windowEnd + 2 * 86400000;
+  let emitted = 0, stepCount = 0;
+  let curMid = baseMid;
+  while (emitted < count && stepCount < 1500) {
     stepCount++;
+    const cd = new Date(curMid);
+    const cY = cd.getUTCFullYear(), cMo = cd.getUTCMonth() + 1, cD = cd.getUTCDate();
+    const inst = Date.UTC(cY, cMo - 1, cD, start.H || 0, start.M || 0, 0) - offsetMin * 60000;
+    if (inst > guardInstant) break;
     let matches = false;
     if (freq === "DAILY") {
-      const daysSince = Math.floor((cursor - base) / 86400000);
+      const daysSince = Math.round((curMid - baseMid) / 86400000);
       matches = daysSince >= 0 && daysSince % interval === 0;
     } else if (freq === "WEEKLY") {
-      const weeksSince = Math.floor((cursor - base) / (7 * 86400000));
+      const weeksSince = Math.floor((curMid - baseMid) / (7 * 86400000));
       const onWeek = weeksSince >= 0 && weeksSince % interval === 0;
-      const dow = DAYS[cursor.getUTCDay()];
-      matches = onWeek && (byday ? byday.includes(dow) : cursor.getUTCDay() === base.getUTCDay());
+      const dow = DAYS[cd.getUTCDay()];
+      matches = onWeek && (byday ? byday.includes(dow) : cd.getUTCDay() === baseDow);
     } else if (freq === "MONTHLY") {
-      matches = cursor.getUTCDate() === base.getUTCDate();
+      matches = cD === start.D;
     }
-    if (matches) { emitted++; if (!until || cursor <= until) push(new Date(cursor.getTime())); }
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    if (matches && (untilInst === null || inst <= untilInst)) {
+      emitted++;
+      if (within(inst)) out.push(inst);
+    }
+    curMid += 86400000;
   }
   return out;
 }
 
-function parseIcs(text, floatingOffsetMin, now) {
+function parseIcs(text, offsetMin, now) {
   const lines = unfold(text).split("\n");
   const events = [];
   let cur = null;
@@ -136,20 +156,20 @@ function parseIcs(text, floatingOffsetMin, now) {
     if (!cur) continue;
     const p = parseLine(line);
     if (!p) continue;
-    if (p.name === "DTSTART") cur.start = parseDate(p.value, p.params, floatingOffsetMin);
-    else if (p.name === "DTEND") cur.end = parseDate(p.value, p.params, floatingOffsetMin);
+    if (p.name === "DTSTART") cur.start = parseDate(p.value, p.params, offsetMin);
+    else if (p.name === "DTEND") cur.end = parseDate(p.value, p.params, offsetMin);
     else if (p.name === "SUMMARY") cur.summary = unescapeText(p.value).slice(0, 140);
     else if (p.name === "RRULE") cur.rrule = p.value;
   }
 
-  const windowStart = new Date(now.getTime() - 2 * 3600000);          // include things happening right now
-  const windowEnd = new Date(now.getTime() + WINDOW_DAYS * 86400000);
+  const windowStart = now.getTime() - 2 * 3600000;          // include things happening right now
+  const windowEnd = now.getTime() + WINDOW_DAYS * 86400000;
 
   const occurrences = [];
   for (const ev of events) {
-    if (!ev.start?.instant) continue;
-    for (const when of expand(ev, windowStart, windowEnd)) {
-      occurrences.push({ summary: ev.summary, allDay: !!ev.start.allDay, instant: when });
+    if (!ev.start) continue;
+    for (const inst of expand(ev, windowStart, windowEnd, offsetMin)) {
+      occurrences.push({ summary: ev.summary, allDay: !!ev.start.allDay, instant: new Date(inst) });
     }
   }
   occurrences.sort((a, b) => a.instant - b.instant);
@@ -159,7 +179,9 @@ function parseIcs(text, floatingOffsetMin, now) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   try {
-    const { url, tz, tzOffsetMinutes } = (typeof req.body === "object" && req.body) || {};
+    let body = req.body;
+    if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = {}; } }
+    const { url, tz, tzOffsetMinutes } = (body && typeof body === "object") ? body : {};
     let raw = String(url || "").trim();
     if (!raw) return res.status(400).json({ error: "Missing calendar URL" });
     if (raw.startsWith("webcal://")) raw = "https://" + raw.slice("webcal://".length);
