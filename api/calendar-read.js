@@ -13,7 +13,7 @@
 // ──────────────────────────────────────────────────────────
 
 const WINDOW_DAYS = 7;
-const MAX_BYTES = 2_000_000;       // don't ingest huge calendars
+const MAX_BYTES = 15_000_000;      // Google basic.ics includes full history — can be multi-MB
 const MAX_EVENTS = 60;             // cap what we hand back
 const FETCH_TIMEOUT_MS = 8000;
 

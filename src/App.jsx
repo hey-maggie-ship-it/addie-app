@@ -173,6 +173,8 @@ Today has ${today.length}/${MAX_TODAY} slots. ${today.length>=MAX_TODAY?"Today i
 
 When the user explicitly says they finished or completed something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge. NEVER suggest type:complete for something the user said they didn't do, couldn't start, skipped, or hasn't done yet.
 
+MOVING A TASK BETWEEN BUCKETS: When the user wants to move an existing task to a different bucket — "move the research 3D class task to today," "bump this to this week," "park that" — use type:move with the task's [id] and the target bucket (today/week/parked). Do NOT express a move as a type:nextstep (a next step is a concrete action, never "move to today") and do NOT recreate the task with type:task. Copy the [id] from CURRENT TASK MEMORY.
+
 TASKS vs NEXT STEPS: A task on the board is the thing the user wants done (e.g. "Plan Q3 offsite"). A "next step" is the single concrete action that moves that task forward right now (e.g. "Email venue for availability"). When the user describes the immediate action for a task ALREADY on the board, attach it with type:nextstep to that task's id — do NOT create a brand-new task for it. Only use type:task when it's genuinely a new, separate thing not represented on the board. Before adding a task, check CURRENT TASK MEMORY above — if it's the same as or a sub-action of something already there, use nextstep instead.
 
 A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). When the user asks you to start a timer, include a type:timer suggestion in the SUGGESTIONS block.
@@ -199,6 +201,7 @@ SUGGESTIONS:
 - type:replace | id:TASK_ID | "updated task text"
 - type:replace | id:TASK_ID | "updated task text" | next:"what comes after"
 - type:nextstep | id:TASK_ID | "next step text"
+- type:move | id:TASK_ID | bucket:today
 - type:complete | id:TASK_ID
 - type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
 - type:reminder | "what to remind them about" | when:"YYYY-MM-DDTHH:MM"
@@ -429,6 +432,36 @@ export default function Addie() {
     if (!hydrated) return;
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, reminders, memory, notes, lastActivity })); } catch {}
   }, [tasks, grocery, messages, sessions, reminders, memory, notes, lastActivity, hydrated]);
+
+  // ── Keep the Android/iOS back gesture INSIDE the app. ──
+  // Pixel gesture-nav fires the browser's Back on edge swipes, which exits a PWA.
+  // We seed a history entry and, on Back, close the top overlay or fall back to the
+  // chat home. Only a deliberate double-back from the bare home screen exits.
+  const backUiRef = useRef({});
+  backUiRef.current = { tab, showSettings, showHistory, viewingSession, showUpgrade, showClearConfirm, pendingCal, showInstall };
+  const lastHomeBackRef = useRef(0);
+  useEffect(() => {
+    const reseed = () => { try { window.history.pushState({ addie: 1 }, ""); } catch {} };
+    reseed();
+    const onPop = () => {
+      const u = backUiRef.current;
+      if (u.pendingCal)       { setPendingCal(null);       reseed(); return; }
+      if (u.showClearConfirm) { setShowClearConfirm(false); reseed(); return; }
+      if (u.showInstall)      { setShowInstall(false);      reseed(); return; }
+      if (u.showUpgrade)      { setShowUpgrade(false);      reseed(); return; }
+      if (u.viewingSession)   { setViewingSession(null);    reseed(); return; }
+      if (u.showHistory)      { setShowHistory(false);      reseed(); return; }
+      if (u.showSettings)     { setShowSettings(false);     reseed(); return; }
+      if (u.tab !== "chat")   { setTab("chat");             reseed(); return; }
+      // Bare home: require a second back within 2s to actually exit the app.
+      if (Date.now() - lastHomeBackRef.current < 2000) return; // let it exit (no reseed)
+      lastHomeBackRef.current = Date.now();
+      showToast("Swipe back again to exit");
+      reseed();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auth: track the Supabase session ──
   useEffect(() => {
@@ -1036,9 +1069,19 @@ export default function Addie() {
   }, [profile?.calendarUrl, refreshCalendar]);
 
   const parseSuggestions = (text) => {
-    const block = text.match(/SUGGESTIONS:\n([\s\S]*?)(?:\n\n|$)/);
-    if (!block) return { clean: text, suggestions: [] };
-    const suggestions = block[1].trim().split("\n").map((l, i) => {
+    // The SUGGESTIONS block is always last. Be tolerant of markdown/spacing around
+    // the header (**SUGGESTIONS:**, trailing spaces, etc.) — a header we fail to
+    // match used to dump all the raw "- type:..." lines into the chat bubble.
+    const hdr = text.match(/(?:^|\n)[ \t>*_]*SUGGESTIONS[ \t*_:]*\n/i);
+    if (!hdr) return { clean: text, suggestions: [] };
+    const clean = text.slice(0, hdr.index).trim();
+    const body = text.slice(hdr.index + hdr[0].length);
+    const suggestions = body.split("\n")
+      .map(s => s.trim())
+      .filter(s => /type:/i.test(s))
+      .map((raw, i) => {
+      // Normalize each line to a leading "- " bullet so the matchers below are stable.
+      const l = ("- " + raw.replace(/^[-*•\s]+/, "")).replace(/^- - /, "- ");
       const mem = l.match(/- type:remember \| "(.+)"/);
       if (mem) return { id: "s"+Date.now()+i, type: "remember", text: mem[1] };
       const tim = l.match(/- type:timer \| minutes:(\d+)(?: \| label:"([^"]*)")?/);
@@ -1065,11 +1108,13 @@ export default function Addie() {
       if (rn) return { id: "s"+Date.now()+i, type: "replace", targetId: rn[1], text: rn[2], nextStep: rn[3] };
       const r = l.match(/- type:replace \| id:(\S+) \| "(.+)"/);
       if (r) return { id: "s"+Date.now()+i, type: "replace", targetId: r[1], text: r[2] };
+      const mv = l.match(/- type:move \| id:(\S+) \| bucket:(today|week|parked)/);
+      if (mv) return { id: "s"+Date.now()+i, type: "move", targetId: mv[1], bucket: mv[2] };
       const t = l.match(/- type:task \| bucket:(today|week|parked) \| "(.+)"/);
       if (t) return { id: "s"+Date.now()+i, type: "task", bucket: t[1], text: t[2] };
       return null;
     }).filter(Boolean);
-    return { clean: text.replace(/SUGGESTIONS:\n[\s\S]*?(?:\n\n|$)/, "").trim(), suggestions };
+    return { clean, suggestions };
   };
 
   // Archive a finished conversation into the read-only history list.
@@ -1168,6 +1213,12 @@ export default function Addie() {
       const t = tasks.find(t => t.id === s.targetId);
       setTasks(p => p.map(t => t.id===s.targetId ? {...t, done:true, completedAt:new Date().toISOString()} : t));
       showToast(`✓  ${t?.text || "Done"}`);
+    }
+    else if (s.type === "move") {
+      const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length;
+      const b = s.bucket==="today" && n>=MAX_TODAY ? "week" : s.bucket;
+      setTasks(p => p.map(t => t.id===s.targetId ? {...t, bucket:b} : t));
+      showToast(b!==s.bucket ? `Today's full — moved to ${BUCKET_STYLE[b].label}` : `Moved to ${BUCKET_STYLE[b].label}`);
     }
     else if (s.type === "timer") { startTimer(s.minutes, s.label); }
     else if (s.type === "calendar") {
@@ -1997,14 +2048,17 @@ export default function Addie() {
                               : s.type==="calendar" ? {bg:"#FEF3C7",text:"#92400E",label:"Calendar"}
                               : s.type==="reminder" ? {bg:"#EDE9FE",text:"#5B21B6",label:"Reminder"}
                               : s.type==="timer" ? {bg:C.blueBg,text:C.blueText,label:"Timer"}
+                              : s.type==="move" ? {bg:C.blueBg,text:C.blueText,label:"Move"}
                               : BUCKET_STYLE[s.bucket];
                     const taskRef = s.type==="complete" ? tasks.find(t=>t.id===s.targetId)?.text : null;
+                    const moveRef = s.type==="move" ? tasks.find(t=>t.id===s.targetId)?.text : null;
                     const removeRef = s.type==="grocery-remove" ? grocery.find(g=>g.id===s.targetId)?.text : null;
                     const display = s.type==="calendar" ? `${s.title} · ${fmtCalDate(s.when)}`
                                     : s.type==="reminder" ? `${s.text} · ${fmtCalDate(s.when)}`
                                     : s.type==="timer" ? `${s.minutes} min${s.label?` · ${s.label}`:""}`
+                                    : s.type==="move" ? `${moveRef || "Task"} → ${BUCKET_STYLE[s.bucket]?.label || s.bucket}`
                                     : (taskRef || removeRef || s.text);
-                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="reminder" ? "Set reminder" : s.type==="timer" ? "Start" : s.type==="grocery-remove" ? "Remove" : "Confirm";
+                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="reminder" ? "Set reminder" : s.type==="timer" ? "Start" : s.type==="grocery-remove" ? "Remove" : s.type==="move" ? "Move" : "Confirm";
                     return (
                       <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, backgroundColor:C.bg, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"10px 14px" }}>
                         <Badge bg={bs.bg} color={bs.text}>{bs.label}</Badge>
