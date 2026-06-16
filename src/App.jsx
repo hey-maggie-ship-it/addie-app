@@ -15,16 +15,16 @@ const IDLE_RESET_MS = 60 * 60 * 1000;
 
 // Read this device's locally-stored data (the pre-accounts data, or offline cache).
 function readLocalData() {
-  let tasks = [], grocery = [], profile = null, messages = [], reminders = [], memory = [];
+  let tasks = [], grocery = [], profile = null, messages = [], reminders = [], memory = [], notes = "";
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; if (Array.isArray(s.messages)) messages = s.messages; if (Array.isArray(s.reminders)) reminders = s.reminders; if (Array.isArray(s.memory)) memory = s.memory; }
+    if (raw) { const s = JSON.parse(raw); if (Array.isArray(s.tasks)) tasks = s.tasks; if (Array.isArray(s.grocery)) grocery = s.grocery; if (Array.isArray(s.messages)) messages = s.messages; if (Array.isArray(s.reminders)) reminders = s.reminders; if (Array.isArray(s.memory)) memory = s.memory; if (typeof s.notes === "string") notes = s.notes; }
   } catch {}
   try {
     const praw = window.localStorage.getItem(PROFILE_KEY);
     if (praw) profile = JSON.parse(praw);
   } catch {}
-  return { tasks, grocery, profile, messages, reminders, memory };
+  return { tasks, grocery, profile, messages, reminders, memory, notes };
 }
 
 // Union two lists of {id,...} items, keeping every unique id. On id collision,
@@ -40,8 +40,8 @@ function profileHasContent(p) {
 
 // Stable string snapshot of the synced data, used to dedupe saves and to
 // ignore the echo of our own writes coming back over Realtime.
-function snapshotJson(tasks, grocery, profile, messages = [], sessions = [], reminders = [], memory = []) {
-  return JSON.stringify({ tasks: tasks||[], grocery: grocery||[], profile: profile||null, messages: messages||[], sessions: sessions||[], reminders: reminders||[], memory: memory||[] });
+function snapshotJson(tasks, grocery, profile, messages = [], sessions = [], reminders = [], memory = [], notes = "") {
+  return JSON.stringify({ tasks: tasks||[], grocery: grocery||[], profile: profile||null, messages: messages||[], sessions: sessions||[], reminders: reminders||[], memory: memory||[], notes: notes||"" });
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -113,7 +113,7 @@ function buildProfileBlock(profile) {
   return `\n\nUSER PROFILE (from onboarding — use to shape your tone and suggestions from the first message):\n${parts.join("\n")}\n\nADAPT OVER TIME: This profile is a starting point, not a cage. If the user gives a clear signal mid-conversation — "you're being too wordy," "just tell me what to do," "slow down," visible frustration — honor it and adjust your style for the rest of the session. Don't silently re-profile them on a whim; respond to explicit cues. They can change these preferences anytime in Settings.`;
 }
 
-function buildSystemPrompt(tasks, grocery, profile, memory = []) {
+function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", calendar = []) {
   const now = new Date();
   const fmtFull = (d) => d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const fmtISO  = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -126,17 +126,30 @@ function buildSystemPrompt(tasks, grocery, profile, memory = []) {
   const today  = tasks.filter(t => t.bucket === "today"  && !t.done);
   const week   = tasks.filter(t => t.bucket === "week"   && !t.done);
   const parked = tasks.filter(t => t.bucket === "parked" && !t.done);
-  const done   = tasks.filter(t => t.done);
+  // "Done today" must mean done TODAY — not every task ever completed. Tasks
+  // stamp completedAt when checked off; anything without it (or from a prior
+  // day) is excluded so morning check-ins don't recycle yesterday's wins.
+  const todayStr = fmtISO(now);
+  const done   = tasks.filter(t => t.done && t.completedAt && fmtISO(new Date(t.completedAt)) === todayStr);
   const gItems = grocery.filter(g => !g.checked);
   const withNext = tasks.filter(t => t.nextStep && !t.done);
   const memList = (memory || []).filter(m => m && m.text);
   const memoryBlock = memList.length
     ? `\n\nWHAT YOU'VE LEARNED ABOUT THIS USER (durable memory carried across every session — use it to personalize naturally; do NOT recite it back like a list or announce that you remember):\n${memList.map(m => `- ${m.text}`).join("\n")}`
     : "";
+  // The user's freeform notepad — only included when they've opted in via Settings.
+  const notesBlock = (profile?.notesReadable && notes && notes.trim())
+    ? `\n\nTHE USER'S NOTEPAD (they've chosen to let you read this — their own freeform notes; reference it when relevant, don't recite it back wholesale or treat every line as a task):\n${notes.trim()}`
+    : "";
+  // Upcoming calendar events the user subscribed Addie to (read-only, next 7 days).
+  const calList = (calendar || []).filter(e => e && e.title);
+  const calendarBlock = calList.length
+    ? `\n\nUSER'S UPCOMING CALENDAR (next 7 days, read from their subscribed calendar — use it to understand what's going on in their life and plan realistically around it; do NOT list it back unless asked, and you can't edit it):\n${calList.map(e => `- ${e.when}: ${e.title}`).join("\n")}`
+    : "";
 
   return `You are Addie, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Not a task manager, not a therapist.
 
-Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}${memoryBlock}
+Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}${memoryBlock}${notesBlock}${calendarBlock}
 
 Be DECISIVE when someone needs an answer or is ready to act — give your best take in one shot rather than dragging a question across many turns. One clarifying question is fine; three is too many.
 
@@ -168,9 +181,9 @@ CALENDAR HANDOFF: When the user asks to schedule something or a specific date+ti
 
 REMINDERS: When the user asks to be reminded of something at a future time or rough period ("remind me to call mom tomorrow night," "nudge me about the deposit mid next week afternoon"), include a type:reminder suggestion. A reminder sends a push notification at that time — it is NOT a calendar event and NOT a board task. Resolve any vague/relative time to a concrete local datetime, choosing a sensible specific hour: morning≈09:00, afternoon≈14:00, evening≈19:00, "mid next week"≈the coming Wednesday. Only use type:reminder when there is a time to fire at; use type:calendar for events with a place/duration, and type:task for to-dos with no specific reminder time. As with calendar, NEVER claim you've set a reminder in prose without emitting the type:reminder line in the same reply.
 
-REMEMBERING THE USER: You build a lasting understanding of this person across sessions. When you learn something durable and worth carrying into future conversations — a meaningful goal ("training for an October marathon"), a recurring struggle ("email is the overwhelm trigger"), an important person or hard deadline ("Q3 board deck is the make-or-break"), a stable working preference ("focuses best early morning"), or a significant life context — capture it with a type:remember suggestion. It saves silently and quietly; you do NOT need to announce it or ask permission. Guidelines: only durable facts about the PERSON, not fleeting state, today's mood, or anything already captured as a task/grocery/reminder. Keep each memory one short, self-contained sentence. Do NOT re-save something already shown in WHAT YOU'VE LEARNED ABOUT THIS USER above. Don't force it — most messages won't warrant a new memory.
+REMEMBERING THE USER: You build a lasting understanding of this person across sessions. Whenever you learn a durable fact about WHO THIS PERSON IS or the life they're living, capture it with a type:remember suggestion — don't be shy about it. This explicitly includes stable life context: where they live ("lives in Okinawa"), their job or role, the important people in their life (partner, kids, pets, boss by name), their time zone or working hours, health or accessibility needs, and ongoing constraints. It also includes meaningful goals ("training for an October marathon"), recurring struggles ("email is the overwhelm trigger"), important people or hard deadlines ("Q3 board deck is the make-or-break"), and stable working preferences ("focuses best early morning"). If the user states a fact about themselves that would still be true next week and would help you help them, save it — a single durable fact like where they live is worth remembering even from a passing mention. It saves silently and quietly; you do NOT need to announce it or ask permission. Guidelines: only durable facts about the PERSON, not fleeting state, today's mood, or anything already captured as a task/grocery/reminder. Keep each memory one short, self-contained sentence. Do NOT re-save something already shown in WHAT YOU'VE LEARNED ABOUT THIS USER above.
 
-UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'") — UPDATE the existing item by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item.
+UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it, retime it, narrow or expand its scope ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'," "actually that task is about the Q3 deck not Q2") — EDIT the existing item in place by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. type:replace can also update the next step via next:"…". Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. You CAN edit a task — never tell the user to delete it and add a new one, and never delete-then-recreate it yourself; that loses its history and makes them do extra work. Editing is always one type:replace. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item.
 
 SUGGESTION FORMAT:
 
@@ -192,7 +205,7 @@ SUGGESTIONS:
 - type:timer | minutes:15 | label:"what the timer is for"
 - type:remember | "one short durable fact about the user"
 
-Rules: Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
+Rules: Before emitting any suggestion, CHECK CURRENT TASK MEMORY, GROCERY, and Done today above. Never re-suggest adding a task or grocery item that's already listed there, and never suggest type:complete for something already in Done today — those actions are already taken. When the user is picking a conversation back up later, assume the suggestions you offered earlier were acted on; don't re-offer the same add/complete/reminder again unless they ask. Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
@@ -222,6 +235,7 @@ export default function Addie() {
   const [timer, setTimer] = useState(null);
   const [pastExpanded, setPastExpanded] = useState(false);
   const [doneExpanded, setDoneExpanded] = useState(false);
+  const [parkedExpanded, setParkedExpanded] = useState(true);
   const [timerAlert, setTimerAlert] = useState(false);
   const [notifPermission, setNotifPermission] = useState("default");
   const [profile, setProfile] = useState(null);          // { style, pattern, context }
@@ -243,6 +257,10 @@ export default function Addie() {
   const [reminders, setReminders] = useState([]);          // chat-scheduled push reminders
   const [remindersExpanded, setRemindersExpanded] = useState(true);
   const [memory, setMemory] = useState([]);                // durable facts Addie learns about the user
+  const [notes, setNotes] = useState("");                  // freeform personal notepad (synced, private to user)
+  const [calEvents, setCalEvents] = useState([]);          // upcoming events read from a subscribed iCal URL
+  const [calStatus, setCalStatus] = useState("idle");      // idle | loading | ok | error
+  const [calError, setCalError] = useState("");
   const [calendarApp, setCalendarApp] = useState(() => { try { return window.localStorage.getItem("addie-calendar-app") || ""; } catch { return ""; } }); // remembered per-device calendar choice
   const [pendingCal, setPendingCal] = useState(null);      // event awaiting a calendar-app pick (chooser open when set)
   const [viewingSession, setViewingSession] = useState(null);
@@ -409,8 +427,8 @@ export default function Addie() {
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, reminders, memory, lastActivity })); } catch {}
-  }, [tasks, grocery, messages, sessions, reminders, memory, lastActivity, hydrated]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, reminders, memory, notes, lastActivity })); } catch {}
+  }, [tasks, grocery, messages, sessions, reminders, memory, notes, lastActivity, hydrated]);
 
   // ── Auth: track the Supabase session ──
   useEffect(() => {
@@ -453,6 +471,7 @@ export default function Addie() {
       const cloudSessions = Array.isArray(data?.sessions) ? data.sessions : [];
       const cloudReminders = Array.isArray(data?.reminders) ? data.reminders : [];
       const cloudMemory = Array.isArray(data?.memory) ? data.memory : [];
+      const cloudNotes = typeof data?.notes === "string" ? data.notes : "";
 
       // Has THIS device already contributed its local data to THIS account?
       let alreadyMigrated = false;
@@ -466,9 +485,10 @@ export default function Addie() {
         setSessions(cloudSessions);
         setReminders(cloudReminders);
         setMemory(cloudMemory);
+        setNotes(cloudNotes);
         if (cloudProfile) { setProfile(cloudProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
-        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions, cloudReminders, cloudMemory);
+        lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions, cloudReminders, cloudMemory, cloudNotes);
       } else {
         // First time this device signs into this account → merge its local data
         // into the cloud so nothing on this device is lost (union by id). Each
@@ -483,6 +503,9 @@ export default function Addie() {
         const mergedSessions = cloudSessions;
         const mergedReminders = mergeById(cloudReminders, local.reminders);
         const mergedMemory = mergeById(cloudMemory, local.memory);
+        // Notes are a single freeform string, not a list — keep cloud if it has
+        // content, otherwise adopt whatever this device had locally.
+        const mergedNotes = cloudNotes.trim() ? cloudNotes : (local.notes || "");
 
         setTasks(mergedTasks);
         setGrocery(mergedGrocery);
@@ -490,19 +513,20 @@ export default function Addie() {
         setSessions(mergedSessions);
         setReminders(mergedReminders);
         setMemory(mergedMemory);
+        setNotes(mergedNotes);
         if (mergedProfile) { setProfile(mergedProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
 
         const { error: upErr } = await supabase.from("user_data").upsert({
           user_id: session.user.id,
           tasks: mergedTasks, grocery: mergedGrocery, profile: mergedProfile,
-          messages: mergedMessages, sessions: mergedSessions, reminders: mergedReminders, memory: mergedMemory,
+          messages: mergedMessages, sessions: mergedSessions, reminders: mergedReminders, memory: mergedMemory, notes: mergedNotes,
           updated_at: new Date().toISOString(),
         });
         if (!upErr) {
           try { window.localStorage.setItem(MIGRATED_KEY, session.user.id); } catch {}
         }
-        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile, mergedMessages, mergedSessions, mergedReminders, mergedMemory);
+        lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile, mergedMessages, mergedSessions, mergedReminders, mergedMemory, mergedNotes);
       }
       setSubscription(subData?.status === "active" ? "active" : "free");
       setCloudLoaded(true);
@@ -514,18 +538,18 @@ export default function Addie() {
   // Debounced to batch edits; ALSO flushed immediately when the app is hidden
   // (mobile browsers can freeze a pending timer and lose the write otherwise).
   // A ref holds the latest snapshot so out-of-render flushes never go stale.
-  const latestRef = useRef({ tasks, grocery, profile, messages, sessions, reminders, memory });
-  useEffect(() => { latestRef.current = { tasks, grocery, profile, messages, sessions, reminders, memory }; }, [tasks, grocery, profile, messages, sessions, reminders, memory]);
+  const latestRef = useRef({ tasks, grocery, profile, messages, sessions, reminders, memory, notes });
+  useEffect(() => { latestRef.current = { tasks, grocery, profile, messages, sessions, reminders, memory, notes }; }, [tasks, grocery, profile, messages, sessions, reminders, memory, notes]);
 
   const saveToCloud = useCallback(() => {
     if (!session || !cloudLoaded) return;
     const d = latestRef.current;
-    const json = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions, d.reminders, d.memory);
+    const json = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions, d.reminders, d.memory, d.notes);
     if (json === lastSyncedRef.current) return; // nothing changed since last sync (incl. our own echoes)
     lastSyncedRef.current = json;
     supabase.from("user_data").upsert({
       user_id: session.user.id,
-      tasks: d.tasks, grocery: d.grocery, profile: d.profile, messages: d.messages, sessions: d.sessions, reminders: d.reminders, memory: d.memory,
+      tasks: d.tasks, grocery: d.grocery, profile: d.profile, messages: d.messages, sessions: d.sessions, reminders: d.reminders, memory: d.memory, notes: d.notes,
       updated_at: new Date().toISOString(),
     }).then(({ error }) => {
       if (error) {
@@ -540,7 +564,7 @@ export default function Addie() {
     if (!session || !cloudLoaded) return;
     const t = setTimeout(saveToCloud, 500);
     return () => clearTimeout(t);
-  }, [tasks, grocery, profile, messages, sessions, reminders, memory, session, cloudLoaded, saveToCloud]);
+  }, [tasks, grocery, profile, messages, sessions, reminders, memory, notes, session, cloudLoaded, saveToCloud]);
 
   // Mobile-safe: save immediately when the app is hidden/closed.
   useEffect(() => {
@@ -570,8 +594,9 @@ export default function Addie() {
           const rSessions = Array.isArray(row.sessions) ? row.sessions : [];
           const rReminders = Array.isArray(row.reminders) ? row.reminders : [];
           const rMemory   = Array.isArray(row.memory)    ? row.memory    : [];
+          const rNotes    = typeof row.notes === "string" ? row.notes : "";
           const rProfile  = row.profile || null;
-          const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions, rReminders, rMemory);
+          const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions, rReminders, rMemory, rNotes);
           // Ignore our own echo / anything identical to what we already have.
           if (incoming === lastSyncedRef.current) return;
           lastSyncedRef.current = incoming;
@@ -581,6 +606,7 @@ export default function Addie() {
           setSessions(rSessions);
           setReminders(rReminders);
           setMemory(rMemory);
+          setNotes(rNotes);
           if (rProfile) { setProfile(rProfile); setOnboarded(true); }
           else { setProfile(null); setOnboarded(false); }
         }
@@ -978,6 +1004,37 @@ export default function Addie() {
     }
   };
 
+  // Fetch the user's subscribed calendar (if they've set one) so Addie can see
+  // what's coming up. Times are read in the user's own timezone.
+  const refreshCalendar = useCallback(async (urlOverride) => {
+    const url = (urlOverride !== undefined ? urlOverride : profile?.calendarUrl) || "";
+    if (!url.trim()) { setCalEvents([]); setCalStatus("idle"); setCalError(""); return; }
+    setCalStatus("loading"); setCalError("");
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const tzOffsetMinutes = -new Date().getTimezoneOffset(); // e.g. JST → +540
+      const res = await fetch("/api/calendar-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim(), tz, tzOffsetMinutes }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setCalStatus("error"); setCalError(data?.error || "Couldn't read that calendar"); return; }
+      setCalEvents(Array.isArray(data.events) ? data.events : []);
+      setCalStatus("ok");
+    } catch {
+      setCalStatus("error"); setCalError("Couldn't reach the calendar");
+    }
+  }, [profile?.calendarUrl]);
+
+  // Refresh on load and whenever the subscribed URL changes, then every 30 min.
+  useEffect(() => {
+    if (!profile?.calendarUrl) { setCalEvents([]); setCalStatus("idle"); return; }
+    refreshCalendar();
+    const t = setInterval(() => refreshCalendar(), 30 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [profile?.calendarUrl, refreshCalendar]);
+
   const parseSuggestions = (text) => {
     const block = text.match(/SUGGESTIONS:\n([\s\S]*?)(?:\n\n|$)/);
     if (!block) return { clean: text, suggestions: [] };
@@ -1060,7 +1117,7 @@ export default function Addie() {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile, memory), messages: next.map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile, memory, notes, calEvents), messages: next.map(m => ({ role: m.role, content: m.content })) }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -1082,7 +1139,13 @@ export default function Addie() {
       let saved = 0;
       remembers.forEach(s => { if (addMemory(s.text)) saved++; });
       if (saved > 0) showToast(saved > 1 ? `✓ Addie will remember those` : `✓ Addie will remember that`);
-      if (chips.length) setPending(chips);
+      // Keep any cards the user hasn't acted on yet (they may have navigated away)
+      // and append this reply's new ones, skipping duplicates of what's already waiting.
+      if (chips.length) setPending(prev => {
+        const sig = s => `${s.type}|${s.targetId||""}|${s.text||s.title||""}|${s.when||""}|${s.minutes||""}`;
+        const seen = new Set(prev.map(sig));
+        return [...prev, ...chips.filter(c => !seen.has(sig(c)))];
+      });
     } catch { setMessages([...next, { role: "assistant", content: "Connection issue. Take a breath — try again.", id: "e"+Date.now() }]); }
     setLoading(false);
   };
@@ -1103,7 +1166,7 @@ export default function Addie() {
     else if (s.type === "nextstep") { setTasks(p => p.map(t => t.id===s.targetId ? {...t, nextStep:s.text} : t)); showToast("Next step saved"); }
     else if (s.type === "complete") {
       const t = tasks.find(t => t.id === s.targetId);
-      setTasks(p => p.map(t => t.id===s.targetId ? {...t, done:true} : t));
+      setTasks(p => p.map(t => t.id===s.targetId ? {...t, done:true, completedAt:new Date().toISOString()} : t));
       showToast(`✓  ${t?.text || "Done"}`);
     }
     else if (s.type === "timer") { startTimer(s.minutes, s.label); }
@@ -1120,7 +1183,7 @@ export default function Addie() {
     setPending(p => p.filter(x => x.id !== s.id));
   };
   const dismiss = (id) => setPending(p => p.filter(x => x.id !== id));
-  const completeTask = (id) => { const t = tasks.find(t=>t.id===id); setTasks(p => p.map(t => t.id===id?{...t,done:true}:t)); setMenuId(null); showToast(`✓  ${t?.text}`); };
+  const completeTask = (id) => { const t = tasks.find(t=>t.id===id); setTasks(p => p.map(t => t.id===id?{...t,done:true,completedAt:new Date().toISOString()}:t)); setMenuId(null); showToast(`✓  ${t?.text}`); };
   const deleteTask = (id) => { setTasks(p => p.filter(t => t.id!==id)); setMenuId(null); };
   const moveTask = (id, b) => { setTasks(p => p.map(t => t.id===id?{...t,bucket:b}:t)); setMenuId(null); };
   const startEdit = (t) => { setEditingId(t.id); setEditText(t.text); setMenuId(null); };
@@ -1142,15 +1205,15 @@ export default function Addie() {
   const deleteGrocery = (id) => setGrocery(p => p.filter(g => g.id!==id));
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
   const doClearAll = () => {
-    setClearBackup({ tasks, grocery, memory });   // snapshot board + grocery + memory so the user can undo
-    setTasks([]); setGrocery([]); setMessages([]); setReminders([]); setMemory([]); setStarted(false); setPending([]);
+    setClearBackup({ tasks, grocery, memory, notes });   // snapshot board + grocery + memory + notes so the user can undo
+    setTasks([]); setGrocery([]); setMessages([]); setReminders([]); setMemory([]); setNotes(""); setStarted(false); setPending([]);
     try{window.localStorage.removeItem(STORAGE_KEY);}catch{}
     setShowClearConfirm(false); setShowSettings(false);
     showToast("Data cleared");
   };
   const undoClear = () => {
     if (!clearBackup) return;
-    setTasks(clearBackup.tasks || []); setGrocery(clearBackup.grocery || []); setMemory(clearBackup.memory || []);
+    setTasks(clearBackup.tasks || []); setGrocery(clearBackup.grocery || []); setMemory(clearBackup.memory || []); setNotes(clearBackup.notes || "");
     setClearBackup(null);
     showToast("Board & grocery restored");
   };
@@ -1174,6 +1237,8 @@ export default function Addie() {
       reminderEnabled: onboardDraft.reminderEnabled || false,
       reminderTime: onboardDraft.reminderTime || "09:00",
       reminderTz: onboardDraft.reminderTz || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      notesReadable: onboardDraft.notesReadable || false,
+      calendarUrl: (onboardDraft.calendarUrl || "").trim(),
     };
     setProfile(p); persistProfile(p); setShowSettings(false); showToast("Preferences saved");
   };
@@ -1185,6 +1250,8 @@ export default function Addie() {
       reminderEnabled: profile?.reminderEnabled || false,
       reminderTime: profile?.reminderTime || "09:00",
       reminderTz: profile?.reminderTz || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      notesReadable: profile?.notesReadable || false,
+      calendarUrl: profile?.calendarUrl || "",
     });
     setShowSettings(true);
   };
@@ -1213,6 +1280,9 @@ export default function Addie() {
   const weekTasks   = tasks.filter(t => t.bucket==="week"   && !t.done);
   const parkedTasks = tasks.filter(t => t.bucket==="parked" && !t.done);
   const doneTasks   = tasks.filter(t => t.done);
+  // Only reminders that haven't fired yet — once one has been sent it's "completed"
+  // and shouldn't keep taking up space on the board.
+  const upcomingReminders = reminders.filter(r => !r.done && new Date(r.when).getTime() > Date.now());
   const activeTasks = tasks.filter(t => !t.done).length;
   const unchecked   = grocery.filter(g => !g.checked);
   const checked     = grocery.filter(g => g.checked);
@@ -1280,15 +1350,25 @@ export default function Addie() {
     );
   };
 
-  const BucketSection = ({ label, items, bucket }) => {
+  const BucketSection = ({ label, items, bucket, collapsible }) => {
     const { bg, text } = BUCKET_STYLE[bucket];
+    const expanded = !collapsible || parkedExpanded;
     return (
       <div style={{ marginBottom:24 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
           <Badge bg={bg} color={text}>{label}</Badge>
           {bucket==="today" && <span style={{ fontSize:12, color:items.length>=MAX_TODAY?C.danger:C.text3, fontWeight:items.length>=MAX_TODAY?600:400 }}>{items.length}/{MAX_TODAY}</span>}
+          {collapsible && items.length>0 && <span style={{ fontSize:12, color:C.text3 }}>{items.length}</span>}
+          {collapsible && items.length>0 && (
+            <span onClick={() => setParkedExpanded(v=>!v)} role="button"
+              style={{ marginLeft:"auto", fontSize:12, color:C.text2, fontWeight:600, cursor:"pointer" }}>{expanded ? "Hide" : "Show"}</span>
+          )}
         </div>
-        {items.length===0 ? <p style={{ fontSize:13, color:C.text3, margin:0, fontStyle:"italic" }}>Nothing here yet</p> : items.map(t => <TaskRow key={t.id} task={t} />)}
+        {items.length===0
+          ? <p style={{ fontSize:13, color:C.text3, margin:0, fontStyle:"italic" }}>Nothing here yet</p>
+          : expanded
+            ? items.map(t => <TaskRow key={t.id} task={t} />)
+            : null}
       </div>
     );
   };
@@ -1403,9 +1483,10 @@ export default function Addie() {
   );
 
   const TABS = [
-    { key:"chat", label:"Chat", glyph:"💬" },
+    { key:"chat", label:"Chat", glyph:"💬", count:pending.length },
     { key:"board", label:"Board", glyph:"📋", count:activeTasks },
     { key:"timer", label:"Timer", glyph:"⏱️" },
+    { key:"notepad", label:"Notes", glyph:"📝" },
     { key:"grocery", label:"Grocery", glyph:"🛒", count:unchecked.length },
   ];
 
@@ -1460,6 +1541,57 @@ export default function Addie() {
                   </div>
                 )
               )}
+            </div>
+            <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
+              <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Notepad</p>
+              <div onClick={() => setOnboardDraft(d => ({ ...d, notesReadable: !d.notesReadable }))}
+                style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
+                <div style={{ flex:1, paddingRight:12 }}>
+                  <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Let Addie read my notes</p>
+                  <p style={{ margin:0, fontSize:12.5, color:C.text3, lineHeight:1.4 }}>Off by default — your notepad stays private. Turn on so Addie can reference it in chat.</p>
+                </div>
+                <div style={{ width:44, height:26, borderRadius:13, backgroundColor:onboardDraft.notesReadable?C.blue:C.border, position:"relative", transition:"background-color 0.2s", flexShrink:0 }}>
+                  <div style={{ position:"absolute", top:3, left:onboardDraft.notesReadable?21:3, width:20, height:20, borderRadius:"50%", backgroundColor:"#fff", transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
+                </div>
+              </div>
+            </div>
+            <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
+              <p style={{ margin:"0 0 6px", fontSize:14, fontWeight:600, color:C.text }}>Calendar</p>
+              <p style={{ margin:"0 0 12px", fontSize:12.5, color:C.text3, lineHeight:1.5 }}>
+                Let Addie see what's coming up by subscribing to your calendar's private link (read-only — she can't change anything).
+              </p>
+              <details style={{ marginBottom:12, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
+                <summary style={{ cursor:"pointer", fontWeight:600, color:C.blueText }}>How do I get my calendar link?</summary>
+                <div style={{ marginTop:8, paddingLeft:2 }}>
+                  <p style={{ margin:"0 0 8px" }}><strong>Google Calendar</strong> (on a computer): Settings → click your calendar under <em>Settings for my calendars</em> → <em>Integrate calendar</em> → copy the <strong>Secret address in iCal format</strong>. Keep it private — anyone with it can see your events.</p>
+                  <p style={{ margin:0 }}><strong>Apple Calendar</strong>: make the calendar a <em>public</em> calendar (right-click the calendar → Share → Public Calendar), then copy that link. Paste it here (a <code>webcal://</code> link is fine).</p>
+                </div>
+              </details>
+              <input
+                value={onboardDraft.calendarUrl || ""}
+                onChange={e => setOnboardDraft(d => ({ ...d, calendarUrl: e.target.value }))}
+                placeholder="Paste your iCal / calendar link"
+                style={{ ...fieldStyle, marginBottom:8 }} />
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <span role="button" onClick={() => refreshCalendar((onboardDraft.calendarUrl||"").trim())}
+                  style={{ ...btnStyle, height:40, opacity:(onboardDraft.calendarUrl||"").trim()?1:0.5 }}>
+                  {calStatus==="loading" ? "Checking…" : "Connect & test"}</span>
+                {(onboardDraft.calendarUrl||"").trim() && (
+                  <span role="button" onClick={() => { setOnboardDraft(d => ({ ...d, calendarUrl: "" })); setCalEvents([]); setCalStatus("idle"); setCalError(""); }}
+                    style={{ fontSize:13, color:C.text2, cursor:"pointer", fontWeight:600 }}>Remove</span>
+                )}
+              </div>
+              {calStatus==="ok" && (
+                <p style={{ margin:"10px 0 0", fontSize:12.5, color:C.greenText }}>
+                  ✓ Connected — Addie can see {calEvents.length} event{calEvents.length===1?"":"s"} in the next 7 days.
+                </p>
+              )}
+              {calStatus==="error" && (
+                <p style={{ margin:"10px 0 0", fontSize:12.5, color:C.danger }}>{calError || "Couldn't read that calendar."}</p>
+              )}
+              <p style={{ margin:"8px 0 0", fontSize:11.5, color:C.text3, lineHeight:1.4 }}>
+                Save Preferences to keep this. Apple (web) only supports public calendars; full private two-way sync is coming later.
+              </p>
             </div>
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
               <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Plan</p>
@@ -1847,7 +1979,13 @@ export default function Addie() {
             {loading && <div style={{ display:"flex", justifyContent:"flex-start", marginTop:12 }}><div style={{ backgroundColor:"#E9E9EB", borderRadius:18, padding:"11px 16px" }}><span style={{ fontSize:20, letterSpacing:3, color:"#8E8E93" }}>···</span></div></div>}
             {pending.length>0 && (
               <div style={{ marginTop:16 }}>
-                <p style={{ fontSize:12.5, color:C.text2, margin:"0 0 10px", fontWeight:500 }}>Confirm?</p>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"0 0 10px" }}>
+                  <p style={{ fontSize:12.5, color:C.text2, margin:0, fontWeight:500 }}>Confirm?{pending.length>1 ? ` · ${pending.length}` : ""}</p>
+                  {pending.length>1 && (
+                    <span onClick={() => setPending([])} role="button"
+                      style={{ fontSize:12.5, color:C.text2, cursor:"pointer", fontWeight:600 }}>Clear all</span>
+                  )}
+                </div>
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                   {pending.map(s => {
                     const bs = s.type==="grocery" ? {bg:C.greenBg,text:C.greenText,label:"Grocery"}
@@ -1887,17 +2025,17 @@ export default function Addie() {
           <div style={{ padding:"16px 20px" }}>
             <BucketSection label="Today" items={todayTasks} bucket="today" />
             <BucketSection label="This week" items={weekTasks} bucket="week" />
-            <BucketSection label="Parked" items={parkedTasks} bucket="parked" />
-            {reminders.filter(r=>!r.done).length>0 && (
+            <BucketSection label="Parked" items={parkedTasks} bucket="parked" collapsible />
+            {upcomingReminders.length>0 && (
               <div style={{ marginBottom:24 }}>
                 <div onClick={() => setRemindersExpanded(v=>!v)} role="button"
                   style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 0", cursor:"pointer" }}>
-                  <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {reminders.filter(r=>!r.done).length}</p>
+                  <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {upcomingReminders.length}</p>
                   <span style={{ fontSize:12, color:C.text2, fontWeight:600 }}>{remindersExpanded ? "Hide" : "Show"}</span>
                 </div>
                 <p style={{ fontSize:12, color:C.text3, margin:"2px 0 8px", lineHeight:1.4 }}>Things Addie's holding to ping you at the right time — peek when you have a free moment.</p>
-                {remindersExpanded && [...reminders].filter(r=>!r.done).sort((a,b)=> new Date(a.when) - new Date(b.when)).map(r => {
-                  const past = new Date(r.when).getTime() < Date.now();
+                {remindersExpanded && [...upcomingReminders].sort((a,b)=> new Date(b.when) - new Date(a.when)).map(r => {
+                  const past = false;
                   return (
                     <div key={r.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${C.borderLt}` }}>
                       <div style={{ flex:1, minWidth:0 }}>
@@ -2015,6 +2153,25 @@ export default function Addie() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {tab==="notepad" && (
+          <div style={{ padding:"16px 20px", display:"flex", flexDirection:"column", flex:1, minHeight:0 }}>
+            <p style={{ fontSize:13, color:C.text2, margin:"0 0 9px", fontWeight:500 }}>
+              Notepad — a quiet place to jot anything. Saves automatically and syncs across your devices.{" "}
+              {profile?.notesReadable
+                ? <span style={{ color:C.text3 }}>Addie can read this (change in Preferences).</span>
+                : <span style={{ color:C.text3 }}>Private to you — Addie can't read it unless you allow it in Preferences.</span>}
+            </p>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Brain dump, half-formed ideas, a phone number, whatever's rattling around…"
+              style={{ flex:1, minHeight:300, width:"100%", resize:"none", fontSize:15, lineHeight:1.6, padding:"14px 15px", borderRadius:12, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+            <p style={{ fontSize:11.5, color:C.text3, margin:"8px 0 0" }}>
+              {notes.trim() ? `${notes.trim().length} characters · saved` : "Empty"}
+            </p>
           </div>
         )}
 

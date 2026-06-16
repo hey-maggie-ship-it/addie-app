@@ -11,8 +11,14 @@ create table if not exists public.user_data (
   tasks      jsonb not null default '[]'::jsonb,
   grocery    jsonb not null default '[]'::jsonb,
   profile    jsonb,
+  notes      text not null default ''::text,
   updated_at timestamptz not null default now()
 );
+
+-- For projects created before a column existed, add it idempotently. The app's
+-- cloud-save upserts every column, so a missing column makes ALL sync fail until
+-- it's added. Run these once after pulling a release that adds a field.
+alter table public.user_data add column if not exists notes text not null default ''::text;
 
 -- Lock the table down so it is NOT publicly readable.
 alter table public.user_data enable row level security;
