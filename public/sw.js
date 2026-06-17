@@ -1,7 +1,7 @@
 self.addEventListener('push', event => {
   const data = event.data?.json() ?? {};
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Addie', {
+    self.registration.showNotification(data.title || 'Ankora', {
       body: data.body || '',
       icon: '/icon-192.png',
       requireInteraction: !!data.requireInteraction,

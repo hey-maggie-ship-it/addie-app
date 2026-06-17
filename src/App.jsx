@@ -1,5 +1,5 @@
 // ──────────────────────────────────────────────────────────
-// ADDIE — A thinking partner for overwhelmed high achievers · v3
+// ANKORA — A thinking partner for overwhelmed high achievers · v3
 // The Anthropic API key now lives server-side in /api/chat.js.
 // Set ANTHROPIC_KEY (NOT VITE_ANTHROPIC_KEY) in your Vercel env vars.
 // ──────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", cal
     ? `\n\nUSER'S UPCOMING CALENDAR (next 7 days, read from their subscribed calendar — use it to understand what's going on in their life and plan realistically around it; do NOT list it back unless asked, and you can't edit it):\n${calList.map(e => `- ${e.when}: ${e.title}`).join("\n")}`
     : "";
 
-  return `You are Addie, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Not a task manager, not a therapist.
+  return `You are Ankora, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Not a task manager, not a therapist.
 
 Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}${memoryBlock}${notesBlock}${calendarBlock}
 
@@ -215,7 +215,7 @@ ADVICE MODE: Sometimes the user just wants to think something through. Engage su
 STYLE: Warm, direct, short paragraphs. Bold one key action with **bold**. No "just do X." No shame. Acknowledge wins. Smallest physical first step when stuck.`;
 }
 
-export default function Addie() {
+export default function Ankora() {
   const [tab, setTab] = useState("chat");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -250,9 +250,11 @@ export default function Addie() {
   const [authLoading, setAuthLoading] = useState(true);
   const [cloudLoaded, setCloudLoaded] = useState(false); // true once this user's row is fetched
   const [authEmail, setAuthEmail] = useState("");
-  const [authSent, setAuthSent] = useState(false);  // magic link sent → show "check your email"
+  const [authSent, setAuthSent] = useState(false);  // OTP sent → show code entry
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpVerifying, setOtpVerifying] = useState(false);
   const [subscription, setSubscription] = useState(null); // null=unknown, 'free', 'active'
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
@@ -297,16 +299,16 @@ export default function Addie() {
   // the user — so give exact, platform- and install-aware steps to fix it by hand.
   const notifFixSteps = () => {
     if (isIOS && !isStandalone) return {
-      lead: "On iPhone, alarms only work once Addie is added to your Home Screen:",
-      steps: ["Tap the Share button ⬆︎ in your browser bar", "Choose “Add to Home Screen”", "Open Addie from the new icon, then tap Allow when asked"],
+      lead: “On iPhone, alarms only work once Ankora is added to your Home Screen:”,
+      steps: [“Tap the Share button ⬆︎ in your browser bar”, “Choose “Add to Home Screen””, “Open Ankora from the new icon, then tap Allow when asked”],
     };
     if (isIOS) return {
-      lead: "Re-enable notifications in your iPhone Settings:",
-      steps: ["Open the Settings app", "Scroll down and tap Addie", "Turn on Allow Notifications"],
+      lead: “Re-enable notifications in your iPhone Settings:”,
+      steps: [“Open the Settings app”, “Scroll down and tap Ankora”, “Turn on Allow Notifications”],
     };
     if (isAndroid && isStandalone) return {
-      lead: "Re-enable notifications for the Addie app:",
-      steps: ["Press and hold the Addie icon, then tap App info (ⓘ)", "Tap Notifications", "Turn notifications on"],
+      lead: “Re-enable notifications for the Ankora app:”,
+      steps: [“Press and hold the Ankora icon, then tap App info (ⓘ)”, “Tap Notifications”, “Turn notifications on”],
     };
     if (isAndroid) return {
       lead: "Re-enable notifications in Chrome:",
@@ -658,13 +660,27 @@ export default function Addie() {
     const email = authEmail.trim();
     if (!email || authBusy) return;
     setAuthBusy(true); setAuthError("");
+    // emailRedirectTo keeps magic-link working on desktop/Android as a fallback.
+    // On iOS PWA, users enter the 6-digit code instead (avoids Safari isolation issue).
+    // Requires "Email OTP" enabled in Supabase Auth → Providers → Email settings.
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: window.location.origin },
     });
     setAuthBusy(false);
     if (error) setAuthError(error.message);
-    else setAuthSent(true);
+    else { setAuthSent(true); setOtpCode(""); }
+  };
+
+  const verifyOtpCode = async () => {
+    const email = authEmail.trim();
+    const code = otpCode.trim();
+    if (!email || code.length !== 6 || otpVerifying) return;
+    setOtpVerifying(true); setAuthError("");
+    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+    setOtpVerifying(false);
+    if (error) setAuthError("Code didn't work — double-check it or request a new one.");
+    // On success, onAuthStateChange fires and sets session automatically.
   };
 
   const signOut = async () => {
@@ -673,7 +689,7 @@ export default function Addie() {
     setCloudLoaded(false);
     setSubscription(null);
     setTasks([]); setGrocery([]); setProfile(null);
-    setStarted(false); setPending([]); setAuthSent(false); setAuthEmail("");
+    setStarted(false); setPending([]); setAuthSent(false); setAuthEmail(""); setOtpCode("");
   };
 
   const startCheckout = async (priceId) => {
@@ -1189,7 +1205,7 @@ export default function Addie() {
       const chips = suggestions.filter(s => s.type !== "remember");
       let saved = 0;
       remembers.forEach(s => { if (addMemory(s.text)) saved++; });
-      if (saved > 0) showToast(saved > 1 ? `✓ Addie will remember those` : `✓ Addie will remember that`);
+      if (saved > 0) showToast(saved > 1 ? `✓ Ankora will remember those` : `✓ Ankora will remember that`);
       // Keep any cards the user hasn't acted on yet (they may have navigated away)
       // and append this reply's new ones, skipping duplicates of what's already waiting.
       if (chips.length) setPending(prev => {
@@ -1280,7 +1296,7 @@ export default function Addie() {
   const finishOnboarding = () => {
     const p = { style: onboardDraft.style, pattern: onboardDraft.pattern, context: onboardDraft.context.trim() };
     setProfile(p); persistProfile(p); setOnboarded(true);
-    if (p.style || p.pattern || p.context) showToast("Got it — Addie's tuned to you");
+    if (p.style || p.pattern || p.context) showToast("Got it — Ankora's tuned to you");
   };
   const skipOnboarding = () => {
     const p = { style: "", pattern: "", context: "" };
@@ -1440,16 +1456,38 @@ export default function Addie() {
       <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"center", padding:"24px 26px", maxWidth:380, width:"100%", margin:"0 auto", boxSizing:"border-box" }}>
         <div style={{ textAlign:"center", marginBottom:28 }}>
           <div style={{ width:54, height:54, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 14px", fontSize:27 }}>🧠</div>
-          <h2 style={{ margin:"0 0 6px", fontSize:23, fontWeight:700, color:C.text }}>Welcome to Addie</h2>
+          <h2 style={{ margin:"0 0 6px", fontSize:23, fontWeight:700, color:C.text }}>Welcome to Ankora</h2>
           <p style={{ margin:"0 auto", fontSize:14, color:C.text2, lineHeight:1.5, maxWidth:300 }}>Sign in to keep your tasks and lists in sync across your devices.</p>
         </div>
 
         {authSent ? (
-          <div style={{ textAlign:"center" }}>
-            <div style={{ fontSize:40, marginBottom:12 }}>📬</div>
-            <p style={{ margin:"0 0 8px", fontSize:15.5, fontWeight:600, color:C.text }}>Check your email</p>
-            <p style={{ margin:"0 0 22px", fontSize:13.5, color:C.text2, lineHeight:1.5 }}>We sent a sign-in link to <strong>{authEmail.trim()}</strong>. Tap it on this device to continue.</p>
-            <span role="button" onClick={() => { setAuthSent(false); setAuthError(""); }} style={{ fontSize:13.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Use a different email</span>
+          <div>
+            <div style={{ textAlign:"center", marginBottom:18 }}>
+              <div style={{ fontSize:40, marginBottom:10 }}>📬</div>
+              <p style={{ margin:"0 0 6px", fontSize:15.5, fontWeight:600, color:C.text }}>Check your email</p>
+              <p style={{ margin:0, fontSize:13.5, color:C.text2, lineHeight:1.5 }}>
+                We sent a 6-digit code to <strong>{authEmail.trim()}</strong>. Enter it below — no need to leave the app.
+              </p>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <input
+                type="text" inputMode="numeric" autoComplete="one-time-code"
+                maxLength={6}
+                value={otpCode}
+                onChange={e => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                onKeyDown={e => e.key === "Enter" && verifyOtpCode()}
+                placeholder="000000"
+                style={{ ...fieldStyle, textAlign:"center", fontSize:22, letterSpacing:6, fontWeight:700 }}
+              />
+              {authError && <p style={{ margin:0, fontSize:12.5, color:C.danger }}>{authError}</p>}
+              <span role="button" onClick={verifyOtpCode}
+                style={{ textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor:(otpVerifying||otpCode.length<6)?C.text3:C.blue, borderRadius:12, padding:"14px 0", cursor:(otpVerifying||otpCode.length<6)?"default":"pointer" }}>
+                {otpVerifying ? "Verifying…" : "Sign in"}
+              </span>
+              <p style={{ margin:0, fontSize:11.5, color:C.text3, textAlign:"center", lineHeight:1.5 }}>On desktop? You can also click the link in the email instead.</p>
+              <span role="button" onClick={() => { setAuthSent(false); setAuthError(""); setOtpCode(""); }}
+                style={{ textAlign:"center", fontSize:13.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Use a different email</span>
+            </div>
           </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
@@ -1527,7 +1565,7 @@ export default function Addie() {
       <div style={{ flex:1, overflowY:"auto", padding:"calc(32px + env(safe-area-inset-top)) 22px 24px" }}>
         <div style={{ textAlign:"center", marginBottom:26 }}>
           <div style={{ width:54, height:54, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px", fontSize:27 }}>🧠</div>
-          <h2 style={{ margin:"0 0 6px", fontSize:22, fontWeight:700, color:C.text }}>Hey, I'm Addie</h2>
+          <h2 style={{ margin:"0 0 6px", fontSize:22, fontWeight:700, color:C.text }}>Hey, I'm Ankora</h2>
           <p style={{ margin:"0 auto", fontSize:14, color:C.text2, lineHeight:1.5, maxWidth:340 }}>Two quick questions so I can meet you where you are. No wrong answers — and I'll keep adjusting as we go.</p>
         </div>
         {profileFields()}
@@ -1562,7 +1600,7 @@ export default function Addie() {
             <p style={{ margin:0, fontWeight:600, fontSize:16, color:C.text }}>Preferences</p>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"22px" }}>
-            <p style={{ margin:"0 0 20px", fontSize:13.5, color:C.text2, lineHeight:1.5 }}>How Addie talks to you. She'll still adjust in the moment if you ask her to.</p>
+            <p style={{ margin:"0 0 20px", fontSize:13.5, color:C.text2, lineHeight:1.5 }}>How Ankora talks to you. She'll still adjust in the moment if you ask her to.</p>
             {profileFields()}
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
               <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Reminders</p>
@@ -1570,7 +1608,7 @@ export default function Addie() {
                 style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer", marginBottom:10 }}>
                 <div>
                   <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Daily check-in nudge</p>
-                  <p style={{ margin:0, fontSize:12.5, color:C.text3 }}>Get a reminder to open Addie at a set time</p>
+                  <p style={{ margin:0, fontSize:12.5, color:C.text3 }}>Get a reminder to open Ankora at a set time</p>
                 </div>
                 <div style={{ width:44, height:26, borderRadius:13, backgroundColor:onboardDraft.reminderEnabled?C.blue:C.border, position:"relative", transition:"background-color 0.2s", flexShrink:0 }}>
                   <div style={{ position:"absolute", top:3, left:onboardDraft.reminderEnabled?21:3, width:20, height:20, borderRadius:"50%", backgroundColor:"#fff", transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
@@ -1604,8 +1642,8 @@ export default function Addie() {
               <div onClick={() => setOnboardDraft(d => ({ ...d, notesReadable: !d.notesReadable }))}
                 style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
                 <div style={{ flex:1, paddingRight:12 }}>
-                  <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Let Addie read my notes</p>
-                  <p style={{ margin:0, fontSize:12.5, color:C.text3, lineHeight:1.4 }}>Off by default — your notepad stays private. Turn on so Addie can reference it in chat.</p>
+                  <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Let Ankora read my notes</p>
+                  <p style={{ margin:0, fontSize:12.5, color:C.text3, lineHeight:1.4 }}>Off by default — your notepad stays private. Turn on so Ankora can reference it in chat.</p>
                 </div>
                 <div style={{ width:44, height:26, borderRadius:13, backgroundColor:onboardDraft.notesReadable?C.blue:C.border, position:"relative", transition:"background-color 0.2s", flexShrink:0 }}>
                   <div style={{ position:"absolute", top:3, left:onboardDraft.notesReadable?21:3, width:20, height:20, borderRadius:"50%", backgroundColor:"#fff", transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
@@ -1615,7 +1653,7 @@ export default function Addie() {
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
               <p style={{ margin:"0 0 6px", fontSize:14, fontWeight:600, color:C.text }}>Calendar</p>
               <p style={{ margin:"0 0 12px", fontSize:12.5, color:C.text3, lineHeight:1.5 }}>
-                Let Addie see what's coming up by subscribing to your calendar's private link (read-only — she can't change anything).
+                Let Ankora see what's coming up by subscribing to your calendar's private link (read-only — she can't change anything).
               </p>
               <details style={{ marginBottom:12, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>
                 <summary style={{ cursor:"pointer", fontWeight:600, color:C.blueText }}>How do I get my calendar link?</summary>
@@ -1640,7 +1678,7 @@ export default function Addie() {
               </div>
               {calStatus==="ok" && (
                 <p style={{ margin:"10px 0 0", fontSize:12.5, color:C.greenText }}>
-                  ✓ Connected — Addie can see {calEvents.length} event{calEvents.length===1?"":"s"} in the next 7 days.
+                  ✓ Connected — Ankora can see {calEvents.length} event{calEvents.length===1?"":"s"} in the next 7 days.
                 </p>
               )}
               {calStatus==="error" && (
@@ -1655,7 +1693,7 @@ export default function Addie() {
               {subscription === "active" ? (
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg }}>
                   <div>
-                    <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:700, color:C.blueText }}>✦ Addie Pro</p>
+                    <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:700, color:C.blueText }}>✦ Ankora Pro</p>
                     <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>Unlimited messages</p>
                   </div>
                   <span role="button" onClick={openBillingPortal}
@@ -1683,18 +1721,18 @@ export default function Addie() {
                   <p style={{ margin:0, fontSize:14, color:C.text }}>
                     Events open in <strong>{calendarApp === "google" ? "Google Calendar" : calendarApp === "outlook" ? "Outlook" : "Apple Calendar"}</strong>
                   </p>
-                  <span role="button" onClick={() => { setCalendarApp(""); try { window.localStorage.removeItem("addie-calendar-app"); } catch {}; showToast("Addie will ask next time"); }}
+                  <span role="button" onClick={() => { setCalendarApp(""); try { window.localStorage.removeItem("addie-calendar-app"); } catch {}; showToast("Ankora will ask next time"); }}
                     style={{ fontSize:12.5, fontWeight:600, color:C.blueText, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"6px 13px", cursor:"pointer", backgroundColor:C.bg, flexShrink:0 }}>Change</span>
                 </div>
               ) : (
-                <p style={{ margin:0, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>Addie will ask which calendar to use the first time you add an event on this device.</p>
+                <p style={{ margin:0, fontSize:12.5, color:C.text2, lineHeight:1.5 }}>Ankora will ask which calendar to use the first time you add an event on this device.</p>
               )}
             </div>
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
-              <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:600, color:C.text }}>What Addie remembers</p>
-              <p style={{ margin:"0 0 12px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>Things Addie has picked up about you and carries between chats. Remove anything that's off.</p>
+              <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:600, color:C.text }}>What Ankora remembers</p>
+              <p style={{ margin:"0 0 12px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>Things Ankora has picked up about you and carries between chats. Remove anything that's off.</p>
               {memory.length === 0 ? (
-                <p style={{ margin:"0 0 12px", fontSize:13, color:C.text3, fontStyle:"italic" }}>Nothing yet — Addie will note things as you talk.</p>
+                <p style={{ margin:"0 0 12px", fontSize:13, color:C.text3, fontStyle:"italic" }}>Nothing yet — Ankora will note things as you talk.</p>
               ) : (
                 <div style={{ marginBottom:12 }}>
                   {memory.map(m => (
@@ -1709,7 +1747,7 @@ export default function Addie() {
               <div style={{ display:"flex", gap:8 }}>
                 <input value={newMemory} onChange={e => setNewMemory(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && newMemory.trim()) { addMemory(newMemory); setNewMemory(""); } }}
-                  placeholder="Add something for Addie to remember…"
+                  placeholder="Add something for Ankora to remember…"
                   style={{ flex:1, fontSize:13.5, padding:"9px 12px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, outline:"none" }} />
                 <span role="button" onClick={() => { if (newMemory.trim()) { addMemory(newMemory); setNewMemory(""); } }}
                   style={{ fontSize:13.5, fontWeight:700, color:newMemory.trim()?"#fff":C.text3, backgroundColor:newMemory.trim()?C.blue:C.bg2, border:newMemory.trim()?"none":`1.5px solid ${C.borderLt}`, borderRadius:10, padding:"9px 15px", cursor:newMemory.trim()?"pointer":"default", flexShrink:0 }}>Add</span>
@@ -1860,7 +1898,7 @@ export default function Addie() {
             <div style={{ textAlign:"center", marginBottom:24 }}>
               <div style={{ fontSize:32, marginBottom:8 }}>✦</div>
               <h2 style={{ margin:"0 0 6px", fontSize:21, fontWeight:700, color:C.text }}>You've hit today's limit</h2>
-              <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Upgrade to Addie Pro for unlimited conversations and every new feature we ship.</p>
+              <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Upgrade to Ankora Pro for unlimited conversations and every new feature we ship.</p>
             </div>
 
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
@@ -1903,7 +1941,7 @@ export default function Addie() {
       <div style={{ padding:"calc(12px + env(safe-area-inset-top)) 18px 12px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:11, flexShrink:0 }}>
         <div style={{ width:34, height:34, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:17 }}>🧠</div>
         <div style={{ flex:1 }}>
-          <p style={{ margin:0, fontWeight:600, fontSize:15, color:C.text }}>Addie</p>
+          <p style={{ margin:0, fontWeight:600, fontSize:15, color:C.text }}>Ankora</p>
           <p style={{ margin:0, fontSize:11.5, color:C.text3 }}>clarity for a busy brain</p>
         </div>
         {tab==="chat" && sessions.length>0 && (
@@ -1923,11 +1961,11 @@ export default function Addie() {
           <span style={{ fontSize:16, flexShrink:0 }}>📲</span>
           {installPrompt ? (
             <>
-              <span style={{ flex:1, fontSize:12.5, color:C.blueText, lineHeight:1.4 }}>Install Addie for alarms that fire even when the app is closed.</span>
+              <span style={{ flex:1, fontSize:12.5, color:C.blueText, lineHeight:1.4 }}>Install Ankora for alarms that fire even when the app is closed.</span>
               <span role="button" onClick={doInstall} style={{ fontSize:12.5, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:8, padding:"6px 12px", cursor:"pointer", flexShrink:0 }}>Install</span>
             </>
           ) : (
-            <span style={{ flex:1, fontSize:12.5, color:C.blueText, lineHeight:1.4 }}>Add Addie to your Home Screen: tap <strong>Share ⬆︎</strong> then <strong>Add to Home Screen</strong>.</span>
+            <span style={{ flex:1, fontSize:12.5, color:C.blueText, lineHeight:1.4 }}>Add Ankora to your Home Screen: tap <strong>Share ⬆︎</strong> then <strong>Add to Home Screen</strong>.</span>
           )}
           <span role="button" onClick={dismissInstall} style={{ fontSize:14, color:C.blueText, cursor:"pointer", lineHeight:1, flexShrink:0 }}>✕</span>
         </div>
@@ -2017,7 +2055,7 @@ export default function Addie() {
                   <div style={{ maxWidth:"76%", backgroundColor:u?C.blue:"#E9E9EB", color:u?"#fff":"#000", borderRadius:18, padding:"9px 14px", fontSize:14.5, lineHeight:1.5 }}>{renderContent(m.content)}</div>
                   {m.upgrade && (
                     <div style={{ maxWidth:"88%", width:"100%", marginTop:8, borderRadius:14, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, padding:"14px 16px" }}>
-                      <p style={{ margin:"0 0 10px", fontSize:13.5, fontWeight:600, color:C.blueText }}>Upgrade to Addie Pro for unlimited</p>
+                      <p style={{ margin:"0 0 10px", fontSize:13.5, fontWeight:600, color:C.blueText }}>Upgrade to Ankora Pro for unlimited</p>
                       <div style={{ display:"flex", gap:8 }}>
                         <span role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_ANNUAL_PRICE_ID)}
                           style={{ flex:1, textAlign:"center", fontSize:13, fontWeight:700, color:"#fff", backgroundColor:upgradeBusy?C.text3:C.blue, borderRadius:8, padding:"9px 0", cursor:upgradeBusy?"default":"pointer" }}>
@@ -2093,7 +2131,7 @@ export default function Addie() {
                   <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {upcomingReminders.length}</p>
                   <span style={{ fontSize:12, color:C.text2, fontWeight:600 }}>{remindersExpanded ? "Hide" : "Show"}</span>
                 </div>
-                <p style={{ fontSize:12, color:C.text3, margin:"2px 0 8px", lineHeight:1.4 }}>Things Addie's holding to ping you at the right time — peek when you have a free moment.</p>
+                <p style={{ fontSize:12, color:C.text3, margin:"2px 0 8px", lineHeight:1.4 }}>Things Ankora's holding to ping you at the right time — peek when you have a free moment.</p>
                 {remindersExpanded && [...upcomingReminders].sort((a,b)=> new Date(b.when) - new Date(a.when)).map(r => {
                   const past = false;
                   return (
@@ -2221,8 +2259,8 @@ export default function Addie() {
             <p style={{ fontSize:13, color:C.text2, margin:"0 0 9px", fontWeight:500 }}>
               Notepad — a quiet place to jot anything. Saves automatically and syncs across your devices.{" "}
               {profile?.notesReadable
-                ? <span style={{ color:C.text3 }}>Addie can read this (change in Preferences).</span>
-                : <span style={{ color:C.text3 }}>Private to you — Addie can't read it unless you allow it in Preferences.</span>}
+                ? <span style={{ color:C.text3 }}>Ankora can read this (change in Preferences).</span>
+                : <span style={{ color:C.text3 }}>Private to you — Ankora can't read it unless you allow it in Preferences.</span>}
             </p>
             <textarea
               value={notes}
@@ -2247,7 +2285,7 @@ export default function Addie() {
                 </div>
               </div>
             </div>
-            {unchecked.length===0 && checked.length===0 && <p style={{ fontSize:14, color:C.text3, marginBottom:20, fontStyle:"italic" }}>Nothing here yet. Add an item above or tell Addie what you need.</p>}
+            {unchecked.length===0 && checked.length===0 && <p style={{ fontSize:14, color:C.text3, marginBottom:20, fontStyle:"italic" }}>Nothing here yet. Add an item above or tell Ankora what you need.</p>}
             {groupNames.map(name => (
               <div key={name} style={{ marginBottom:22 }}>
                 {(groupNames.length>1 || name!=="Grocery") && <p style={{ fontSize:12, color:C.text2, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>{name}</p>}
@@ -2284,7 +2322,7 @@ export default function Addie() {
       {tab==="chat" && (
         <div style={{ padding:"16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
           <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
-            placeholder="Message Addie…  (Ctrl+Enter to send · 🎤 tap your keyboard's mic to talk)" rows={2}
+            placeholder="Message Ankora…  (Ctrl+Enter to send · 🎤 tap your keyboard's mic to talk)" rows={2}
             style={{ flex:1, resize:"none", fontSize:16, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
