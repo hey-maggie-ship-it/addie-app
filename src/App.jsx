@@ -1501,9 +1501,9 @@ export default function Ankora() {
             {authError && <p style={{ margin:0, fontSize:12.5, color:C.danger }}>{authError}</p>}
             <span role="button" onClick={sendMagicLink}
               style={{ textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor: authBusy ? C.text3 : C.blue, borderRadius:12, padding:"14px 0", cursor: authBusy ? "default" : "pointer" }}>
-              {authBusy ? "Sending…" : "Send me a sign-in link"}
+              {authBusy ? "Sending…" : "Email me a code"}
             </span>
-            <p style={{ margin:"6px 0 0", fontSize:11.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>No password needed — we'll email you a secure link.</p>
+            <p style={{ margin:"6px 0 0", fontSize:11.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>We'll email you a 6-digit code — no password needed.</p>
             <p style={{ margin:"10px 0 0", fontSize:11, color:C.text3, lineHeight:1.5, textAlign:"center" }}>
               By signing in you agree to our{" "}
               <a href="/terms.html" target="_blank" rel="noreferrer" style={{ color:C.text2, textDecoration:"underline" }}>Terms</a>
