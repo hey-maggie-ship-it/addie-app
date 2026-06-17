@@ -299,16 +299,16 @@ export default function Ankora() {
   // the user — so give exact, platform- and install-aware steps to fix it by hand.
   const notifFixSteps = () => {
     if (isIOS && !isStandalone) return {
-      lead: “On iPhone, alarms only work once Ankora is added to your Home Screen:”,
-      steps: [“Tap the Share button in your browser bar”, “Choose 'Add to Home Screen'”, “Open Ankora from the new icon, then tap Allow when asked”],
+      lead: "On iPhone, alarms only work once Ankora is added to your Home Screen:",
+      steps: ["Tap the Share button in your browser bar", "Choose 'Add to Home Screen'", "Open Ankora from the new icon, then tap Allow when asked"],
     };
     if (isIOS) return {
-      lead: “Re-enable notifications in your iPhone Settings:”,
-      steps: [“Open the Settings app”, “Scroll down and tap Ankora”, “Turn on Allow Notifications”],
+      lead: "Re-enable notifications in your iPhone Settings:",
+      steps: ["Open the Settings app", "Scroll down and tap Ankora", "Turn on Allow Notifications"],
     };
     if (isAndroid && isStandalone) return {
-      lead: “Re-enable notifications for the Ankora app:”,
-      steps: [“Press and hold the Ankora icon, then tap App info (ⓘ)”, “Tap Notifications”, “Turn notifications on”],
+      lead: "Re-enable notifications for the Ankora app:",
+      steps: ["Press and hold the Ankora icon, then tap App info (ⓘ)", "Tap Notifications", "Turn notifications on"],
     };
     if (isAndroid) return {
       lead: "Re-enable notifications in Chrome:",
