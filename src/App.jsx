@@ -148,7 +148,7 @@ function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", cal
     ? `\n\nUSER'S UPCOMING CALENDAR (next 7 days, read from their subscribed calendar — use it to understand what's going on in their life and plan realistically around it; do NOT list it back unless asked, and you can't edit it):\n${calList.map(e => `- ${e.when}: ${e.title}`).join("\n")}`
     : "";
 
-  return `You are Ankora, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Not a task manager, not a therapist.
+  return `You are Ankora, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Your job is to help them regroup, get clear on what matters now, and maintain momentum. Not a task manager, not a therapist.
 
 Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}${memoryBlock}${notesBlock}${calendarBlock}
 
@@ -1153,10 +1153,12 @@ export default function Ankora() {
     const firstUser = msgs.find(m => m.role === "user");
     const starter = firstUser ? STARTERS.find(s => s.prompt === firstUser.content) : null;
     const ts = parseInt((msgs[0]?.id || "").replace(/^\D+/, "") || String(Date.now()), 10);
+    const rawTitle = firstUser?.content?.trim() || "";
+    const autoTitle = starter?.label || (rawTitle ? rawTitle.slice(0, 48) + (rawTitle.length > 48 ? "…" : "") : null);
     setSessions(prev => [{
       id: "s" + Date.now(),
       startedAt: new Date(isNaN(ts) ? Date.now() : ts).toISOString(),
-      label: starter?.label || null,
+      label: autoTitle,
       messages: msgs,
     }, ...prev].slice(0, 30));
   };
@@ -1455,18 +1457,18 @@ export default function Ankora() {
     );
   };
 
-  const loadingScreen = (msg) => <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontFamily:"system-ui,sans-serif", color:C.text3 }}>{msg}</div>;
+  const loadingScreen = (msg) => <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100svh", fontFamily:"system-ui,sans-serif", color:C.text3 }}>{msg}</div>;
 
   if (authLoading) return loadingScreen("Loading…");
 
   // ── Not signed in → passwordless (magic-link) sign-in ──
   if (!session) return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100svh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg }}>
       <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"center", padding:"24px 26px", maxWidth:380, width:"100%", margin:"0 auto", boxSizing:"border-box" }}>
-        <div style={{ textAlign:"center", marginBottom:28 }}>
-          <div style={{ width:54, height:54, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 14px", fontSize:27 }}>🧠</div>
-          <h2 style={{ margin:"0 0 6px", fontSize:23, fontWeight:700, color:C.text }}>Welcome to Ankora</h2>
-          <p style={{ margin:"0 auto", fontSize:14, color:C.text2, lineHeight:1.5, maxWidth:300 }}>Sign in to keep your tasks and lists in sync across your devices.</p>
+        <div style={{ marginBottom:28 }}>
+          <img src="/logo.svg" alt="" style={{ width:36, height:35, marginBottom:14 }} />
+          <h2 style={{ margin:"0 0 8px", fontSize:26, fontWeight:800, color:C.text }}>Welcome to Ankora</h2>
+          <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Sign in to keep your tasks and lists in sync across your devices.</p>
         </div>
 
         {authSent ? (
@@ -1531,7 +1533,7 @@ export default function Ankora() {
   const profileFields = () => (
     <>
       <div style={{ marginBottom:22 }}>
-        <p style={{ margin:"0 0 10px", fontSize:14, fontWeight:600, color:C.text }}>When you're stuck, what helps more?</p>
+        <p style={{ margin:"0 0 10px", fontSize:17, fontWeight:700, color:C.text }}>When you're stuck, what helps more?</p>
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
           {ONBOARD_STYLE.map(o => {
             const sel = onboardDraft.style === o.value;
@@ -1546,7 +1548,7 @@ export default function Ankora() {
         </div>
       </div>
       <div style={{ marginBottom:22 }}>
-        <p style={{ margin:"0 0 10px", fontSize:14, fontWeight:600, color:C.text }}>What trips you up most?</p>
+        <p style={{ margin:"0 0 10px", fontSize:17, fontWeight:700, color:C.text }}>What trips you up most?</p>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
           {ONBOARD_PATTERN.map(o => {
             const sel = onboardDraft.pattern === o.value;
@@ -1561,7 +1563,7 @@ export default function Ankora() {
         </div>
       </div>
       <div style={{ marginBottom:8 }}>
-        <p style={{ margin:"0 0 10px", fontSize:14, fontWeight:600, color:C.text }}>What's on your plate these days? <span style={{ fontWeight:400, color:C.text3 }}>(optional)</span></p>
+        <p style={{ margin:"0 0 10px", fontSize:17, fontWeight:700, color:C.text }}>What's on your plate these days? <span style={{ fontSize:14, fontWeight:400, color:C.text3 }}>(optional)</span></p>
         <textarea value={onboardDraft.context} onChange={e => setOnboardDraft(d => ({ ...d, context: e.target.value }))}
           placeholder="e.g. launching a product, juggling work + a newborn, finishing my thesis…" rows={2}
           style={{ width:"100%", resize:"none", fontSize:16, padding:"12px 14px", borderRadius:12, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box" }} />
@@ -1570,12 +1572,12 @@ export default function Ankora() {
   );
 
   if (!onboarded) return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100svh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg }}>
       <div style={{ flex:1, overflowY:"auto", padding:"calc(32px + env(safe-area-inset-top)) 22px 24px" }}>
-        <div style={{ textAlign:"center", marginBottom:26 }}>
-          <div style={{ width:54, height:54, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 12px", fontSize:27 }}>🧠</div>
-          <h2 style={{ margin:"0 0 6px", fontSize:22, fontWeight:700, color:C.text }}>Hey, I'm Ankora</h2>
-          <p style={{ margin:"0 auto", fontSize:14, color:C.text2, lineHeight:1.5, maxWidth:340 }}>Two quick questions so I can meet you where you are. No wrong answers — and I'll keep adjusting as we go.</p>
+        <div style={{ marginBottom:28 }}>
+          <img src="/logo.svg" alt="" style={{ width:40, height:38, marginBottom:14 }} />
+          <h2 style={{ margin:"0 0 8px", fontSize:26, fontWeight:800, color:C.text }}>Hey, I'm Ankora</h2>
+          <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Two quick questions so I can meet you where you are. No wrong answers.</p>
         </div>
         {profileFields()}
       </div>
@@ -1590,7 +1592,6 @@ export default function Ankora() {
     { key:"chat", label:"Chat", glyph:"💬", count:pending.length },
     { key:"board", label:"Board", glyph:"📋", count:activeTasks },
     { key:"timer", label:"Timer", glyph:"⏱️" },
-    { key:"notepad", label:"Notes", glyph:"📝" },
     { key:"grocery", label:"Grocery", glyph:"🛒", count:unchecked.length },
   ];
 
@@ -1599,7 +1600,7 @@ export default function Ankora() {
   const groupNames = Object.keys(groups).sort((a,b) => a==="Grocery"?-1 : b==="Grocery"?1 : a.localeCompare(b));
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100vh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg, position:"relative" }} onClick={() => menuId && setMenuId(null)}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100svh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg, position:"relative" }} onClick={() => menuId && setMenuId(null)}>
 
       {/* Preferences / Settings overlay */}
       {showSettings && (
@@ -1809,7 +1810,7 @@ export default function Ankora() {
             </div>
             <input value={viewingSession.note || ""} maxLength={80}
               onChange={e => setSessionNote(viewingSession.id, e.target.value)}
-              placeholder="✎ Add a note…"
+              placeholder="✎ Edit title…"
               style={{ flexShrink:0, width:130, fontSize:12.5, padding:"7px 10px", borderRadius:9, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, outline:"none" }} />
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"14px 16px" }}>
@@ -1948,10 +1949,10 @@ export default function Ankora() {
 
       {/* Header */}
       <div style={{ padding:"calc(12px + env(safe-area-inset-top)) 18px 12px", borderBottom:`1.5px solid ${C.borderLt}`, display:"flex", alignItems:"center", gap:11, flexShrink:0 }}>
-        <div style={{ width:34, height:34, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:17 }}>🧠</div>
+        <img src="/favicon.svg" alt="" style={{ width:28, height:27, flexShrink:0 }} />
         <div style={{ flex:1 }}>
           <p style={{ margin:0, fontWeight:600, fontSize:15, color:C.text }}>Ankora</p>
-          <p style={{ margin:0, fontSize:11.5, color:C.text3 }}>clarity for a busy brain</p>
+          <p style={{ margin:0, fontSize:11.5, color:C.text3 }}>your place to regroup</p>
         </div>
         {tab==="chat" && sessions.length>0 && (
           <span onClick={() => setShowHistory(true)} role="button" title="Past sessions"
@@ -2019,16 +2020,15 @@ export default function Ankora() {
           <div style={{ padding:"14px 16px" }}>
             {(!started || messages.length === 0) && (
               <div>
-                <div style={{ textAlign:"center", padding:"2px 0 14px" }}>
-                  <div style={{ width:40, height:40, borderRadius:"50%", backgroundColor:C.blueBg, display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 8px", fontSize:20 }}>🧠</div>
-                  <h3 style={{ margin:"0 0 3px", fontSize:18, fontWeight:600, color:C.text }}>Hey, how's it going?</h3>
-                  <p style={{ margin:0, fontSize:13, color:C.text3 }}>Pick a starting point, or just tell me what's up.</p>
+                <div style={{ padding:"10px 0 18px" }}>
+                  <h3 style={{ margin:"0 0 4px", fontSize:24, fontWeight:700, color:C.text }}>Hey, how's it going?</h3>
+                  <p style={{ margin:0, fontSize:14, color:C.text2 }}>Pick a starting point, or just tell me what's up.</p>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                   {STARTERS.map(s => (
                     <div key={s.label} onClick={() => sendMessage(s.prompt)} role="button"
-                      style={{ backgroundColor:C.bg2, border:`1.5px solid ${C.borderLt}`, borderRadius:12, padding:"12px", cursor:"pointer", fontSize:13, color:C.text, lineHeight:1.4, fontWeight:500 }}>
-                      <span style={{ display:"block", fontSize:20, marginBottom:5 }}>{s.icon}</span>{s.label}
+                      style={{ backgroundColor:C.bg2, border:`1.5px solid ${C.borderLt}`, borderRadius:14, padding:"14px 12px", cursor:"pointer", fontSize:14, color:C.text, lineHeight:1.4, fontWeight:600 }}>
+                      <span style={{ display:"block", fontSize:22, marginBottom:7 }}>{s.icon}</span>{s.label}
                     </div>
                   ))}
                 </div>
@@ -2331,7 +2331,7 @@ export default function Ankora() {
       {tab==="chat" && (
         <div style={{ padding:"16px", borderTop:`1.5px solid ${C.borderLt}`, display:"flex", gap:10, alignItems:"flex-end", backgroundColor:C.bg, flexShrink:0 }}>
           <textarea ref={taRef} value={input} onChange={e=>{setInput(e.target.value); setLastActivity(Date.now());}} onKeyDown={handleKey}
-            placeholder="Message Ankora…  (Ctrl+Enter to send · 🎤 tap your keyboard's mic to talk)" rows={2}
+            placeholder={isIOS || isAndroid ? "Message Ankora…  (🎤 tap your keyboard's mic to talk)" : "Message Ankora…  (Ctrl+Enter to send · 🎤 tap your keyboard's mic to talk)"} rows={2}
             style={{ flex:1, resize:"none", fontSize:16, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
