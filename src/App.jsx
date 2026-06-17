@@ -6,6 +6,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
+import posthog from "posthog-js";
 
 const STORAGE_KEY = "addie-app-state-v1";
 const TIMER_KEY = "addie-timer-v1";
@@ -477,9 +478,15 @@ export default function Ankora() {
       setSession(data.session);
       setAuthLoading(false);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
       setAuthLoading(false);
+      if (s?.user) {
+        posthog.identify(s.user.id, { email: s.user.email });
+        if (event === "SIGNED_IN") posthog.capture("signed_in");
+      } else if (event === "SIGNED_OUT") {
+        posthog.reset();
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -1014,6 +1021,7 @@ export default function Ankora() {
       showToast("That reminder time has already passed");
       return;
     }
+    posthog.capture("reminder_scheduled");
     const rid = "r" + Date.now();
     setReminders(prev => [{ id: rid, text, when: when.toISOString(), pushId: null, createdAt: new Date().toISOString(), done: false }, ...prev]);
     showToast("Reminder set");
@@ -1167,6 +1175,7 @@ export default function Ankora() {
 
   const sendMessage = async (userText) => {
     if (!userText.trim() || loading) return;
+    posthog.capture("message_sent");
     // Starting a brand-new message from the landing screen (not continuing the
     // previous chat) → archive the old conversation so it doesn't expand inline.
     let base = messages;
