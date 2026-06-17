@@ -300,7 +300,7 @@ export default function Ankora() {
   const notifFixSteps = () => {
     if (isIOS && !isStandalone) return {
       lead: “On iPhone, alarms only work once Ankora is added to your Home Screen:”,
-      steps: [“Tap the Share button ⬆︎ in your browser bar”, “Choose “Add to Home Screen””, “Open Ankora from the new icon, then tap Allow when asked”],
+      steps: [“Tap the Share button in your browser bar”, “Choose 'Add to Home Screen'”, “Open Ankora from the new icon, then tap Allow when asked”],
     };
     if (isIOS) return {
       lead: “Re-enable notifications in your iPhone Settings:”,
