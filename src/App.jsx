@@ -256,6 +256,11 @@ export default function Ankora() {
   const [authError, setAuthError] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [otpVerifying, setOtpVerifying] = useState(false);
+  const [authMode, setAuthMode] = useState("code");        // "code" | "password" — sign-in method on the login screen
+  const [authPassword, setAuthPassword] = useState("");    // password entered on the login screen
+  const [newPassword, setNewPassword] = useState("");      // set/change password from Settings
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMsg, setPwMsg] = useState("");
   const [subscription, setSubscription] = useState(null); // null=unknown, 'free', 'active'
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
@@ -690,6 +695,26 @@ export default function Ankora() {
     // On success, onAuthStateChange fires and sets session automatically.
   };
 
+  const passwordSignIn = async () => {
+    const email = authEmail.trim();
+    if (!email || !authPassword || authBusy) return;
+    setAuthBusy(true); setAuthError("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password: authPassword });
+    setAuthBusy(false);
+    if (error) setAuthError("That email and password didn't match. Try again, or use a sign-in code instead.");
+    // On success, onAuthStateChange fires and sets the session automatically.
+  };
+
+  // Set/change the account password from Settings. Saves immediately (separate from profile Save).
+  const saveNewPassword = async () => {
+    if (newPassword.length < 8 || pwBusy) return;
+    setPwBusy(true); setPwMsg("");
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setPwBusy(false);
+    if (error) setPwMsg(error.message);
+    else { setNewPassword(""); setPwMsg("Password saved — you can use it to sign in next time."); }
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setSession(null);
@@ -697,6 +722,7 @@ export default function Ankora() {
     setSubscription(null);
     setTasks([]); setGrocery([]); setProfile(null);
     setStarted(false); setPending([]); setAuthSent(false); setAuthEmail(""); setOtpCode("");
+    setAuthMode("code"); setAuthPassword("");
   };
 
   const startCheckout = async (priceId) => {
@@ -1500,6 +1526,38 @@ export default function Ankora() {
                 style={{ textAlign:"center", fontSize:13.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Use a different email</span>
             </div>
           </div>
+        ) : authMode === "password" ? (
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <input
+              type="email" inputMode="email" autoComplete="email" value={authEmail}
+              onChange={e => setAuthEmail(e.target.value)}
+              placeholder="you@example.com"
+              style={fieldStyle}
+            />
+            <input
+              type="password" autoComplete="current-password" value={authPassword}
+              onChange={e => setAuthPassword(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && passwordSignIn()}
+              placeholder="Password"
+              style={fieldStyle}
+            />
+            {authError && <p style={{ margin:0, fontSize:12.5, color:C.danger }}>{authError}</p>}
+            <span role="button" onClick={passwordSignIn}
+              style={{ textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor:(authBusy||!authEmail.trim()||!authPassword)?C.text3:C.blue, borderRadius:12, padding:"14px 0", cursor:(authBusy||!authEmail.trim()||!authPassword)?"default":"pointer" }}>
+              {authBusy ? "Signing in…" : "Sign in"}
+            </span>
+            <span role="button" onClick={() => { setAuthMode("code"); setAuthError(""); setAuthPassword(""); }}
+              style={{ textAlign:"center", fontSize:13.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Email me a code instead</span>
+            <p style={{ margin:"6px 0 0", fontSize:11.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>
+              New here, or no password yet? Use a code — you can set a password later in Preferences.
+            </p>
+            <p style={{ margin:"10px 0 0", fontSize:11, color:C.text3, lineHeight:1.5, textAlign:"center" }}>
+              By signing in you agree to our{" "}
+              <a href="/terms.html" target="_blank" rel="noreferrer" style={{ color:C.text2, textDecoration:"underline" }}>Terms</a>
+              {" "}and{" "}
+              <a href="/privacy.html" target="_blank" rel="noreferrer" style={{ color:C.text2, textDecoration:"underline" }}>Privacy Policy</a>.
+            </p>
+          </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
             <input
@@ -1515,6 +1573,8 @@ export default function Ankora() {
               {authBusy ? "Sending…" : "Email me a code"}
             </span>
             <p style={{ margin:"6px 0 0", fontSize:11.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>We'll email you a 6-digit code — no password needed.</p>
+            <span role="button" onClick={() => { setAuthMode("password"); setAuthError(""); }}
+              style={{ textAlign:"center", fontSize:13.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Sign in with a password instead</span>
             <p style={{ margin:"10px 0 0", fontSize:11, color:C.text3, lineHeight:1.5, textAlign:"center" }}>
               By signing in you agree to our{" "}
               <a href="/terms.html" target="_blank" rel="noreferrer" style={{ color:C.text2, textDecoration:"underline" }}>Terms</a>
@@ -1648,19 +1708,6 @@ export default function Ankora() {
               )}
             </div>
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
-              <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Notepad</p>
-              <div onClick={() => setOnboardDraft(d => ({ ...d, notesReadable: !d.notesReadable }))}
-                style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
-                <div style={{ flex:1, paddingRight:12 }}>
-                  <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Let Ankora read my notes</p>
-                  <p style={{ margin:0, fontSize:12.5, color:C.text3, lineHeight:1.4 }}>Off by default — your notepad stays private. Turn on so Ankora can reference it in chat.</p>
-                </div>
-                <div style={{ width:44, height:26, borderRadius:13, backgroundColor:onboardDraft.notesReadable?C.blue:C.border, position:"relative", transition:"background-color 0.2s", flexShrink:0 }}>
-                  <div style={{ position:"absolute", top:3, left:onboardDraft.notesReadable?21:3, width:20, height:20, borderRadius:"50%", backgroundColor:"#fff", transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)" }} />
-                </div>
-              </div>
-            </div>
-            <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
               <p style={{ margin:"0 0 6px", fontSize:14, fontWeight:600, color:C.text }}>Calendar</p>
               <p style={{ margin:"0 0 12px", fontSize:12.5, color:C.text3, lineHeight:1.5 }}>
                 Let Ankora see what's coming up by subscribing to your calendar's private link (read-only — she can't change anything).
@@ -1762,6 +1809,20 @@ export default function Ankora() {
                 <span role="button" onClick={() => { if (newMemory.trim()) { addMemory(newMemory); setNewMemory(""); } }}
                   style={{ fontSize:13.5, fontWeight:700, color:newMemory.trim()?"#fff":C.text3, backgroundColor:newMemory.trim()?C.blue:C.bg2, border:newMemory.trim()?"none":`1.5px solid ${C.borderLt}`, borderRadius:10, padding:"9px 15px", cursor:newMemory.trim()?"pointer":"default", flexShrink:0 }}>Add</span>
               </div>
+            </div>
+            <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
+              <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:600, color:C.text }}>Password</p>
+              <p style={{ margin:"0 0 12px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>Set a password to sign in without waiting for an emailed code. You can still use a code anytime.</p>
+              <div style={{ display:"flex", gap:8 }}>
+                <input type="password" autoComplete="new-password" value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") saveNewPassword(); }}
+                  placeholder="New password (8+ characters)"
+                  style={{ flex:1, fontSize:13.5, padding:"9px 12px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, outline:"none" }} />
+                <span role="button" onClick={saveNewPassword}
+                  style={{ fontSize:13.5, fontWeight:700, color:newPassword.length>=8?"#fff":C.text3, backgroundColor:newPassword.length>=8?C.blue:C.bg2, border:newPassword.length>=8?"none":`1.5px solid ${C.borderLt}`, borderRadius:10, padding:"9px 15px", cursor:newPassword.length>=8?"pointer":"default", flexShrink:0 }}>{pwBusy ? "Saving…" : "Save"}</span>
+              </div>
+              {pwMsg && <p style={{ margin:"8px 0 0", fontSize:12, color:pwMsg.includes("saved")?C.greenText:C.danger, lineHeight:1.4 }}>{pwMsg}</p>}
             </div>
             <div style={{ marginTop:22, paddingTop:18, borderTop:`1.5px solid ${C.borderLt}` }}>
               <span role="button" onClick={() => setShowClearConfirm(true)}
@@ -2268,8 +2329,8 @@ export default function Ankora() {
             <p style={{ fontSize:13, color:C.text2, margin:"0 0 9px", fontWeight:500 }}>
               Notepad — a quiet place to jot anything. Saves automatically and syncs across your devices.{" "}
               {profile?.notesReadable
-                ? <span style={{ color:C.text3 }}>Ankora can read this (change in Preferences).</span>
-                : <span style={{ color:C.text3 }}>Private to you — Ankora can't read it unless you allow it in Preferences.</span>}
+                ? <span style={{ color:C.text3 }}>Ankora can read this.</span>
+                : <span style={{ color:C.text3 }}>Private to you — Ankora can't read it.</span>}
             </p>
             <textarea
               value={notes}
