@@ -1748,24 +1748,24 @@ export default function Ankora() {
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
               <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Plan</p>
               {subscription === "active" ? (
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg }}>
+                <div role="button" onClick={openBillingPortal}
+                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, cursor:"pointer" }}>
                   <div>
                     <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:700, color:C.blueText }}>✦ Ankora Pro</p>
                     <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>Unlimited messages</p>
                   </div>
-                  <span role="button" onClick={openBillingPortal}
-                    style={{ fontSize:12.5, color:C.blueText, fontWeight:600, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"6px 14px", cursor:"pointer", backgroundColor:C.bg }}>
+                  <span style={{ fontSize:12.5, color:C.blueText, fontWeight:600, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"6px 14px", backgroundColor:C.bg }}>
                     Manage
                   </span>
                 </div>
               ) : (
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2 }}>
+                <div role="button" onClick={() => { setShowSettings(false); setShowUpgrade(true); }}
+                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
                   <div>
                     <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Free</p>
                     <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>25 messages / day</p>
                   </div>
-                  <span role="button" onClick={() => { setShowSettings(false); setShowUpgrade(true); }}
-                    style={{ fontSize:12.5, color:"#fff", fontWeight:700, backgroundColor:C.blue, borderRadius:8, padding:"7px 16px", cursor:"pointer" }}>
+                  <span style={{ fontSize:12.5, color:"#fff", fontWeight:700, backgroundColor:C.blue, borderRadius:8, padding:"7px 16px" }}>
                     Upgrade
                   </span>
                 </div>
@@ -1973,29 +1973,29 @@ export default function Ankora() {
             </div>
 
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
-              {/* Annual plan — shown first as recommended */}
-              <div style={{ borderRadius:14, border:`2px solid ${C.blue}`, backgroundColor:C.blueBg, padding:"16px 18px", position:"relative" }}>
+              {/* Annual plan — shown first as recommended. Whole box is clickable. */}
+              <div role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_ANNUAL_PRICE_ID)}
+                style={{ borderRadius:14, border:`2px solid ${C.blue}`, backgroundColor:C.blueBg, padding:"16px 18px", position:"relative", cursor: upgradeBusy ? "default" : "pointer" }}>
                 <div style={{ position:"absolute", top:-10, left:18, fontSize:11, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:20, padding:"3px 12px" }}>BEST VALUE</div>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
                   <span style={{ fontSize:15.5, fontWeight:700, color:C.text }}>Annual</span>
                   <span style={{ fontSize:15.5, fontWeight:700, color:C.blueText }}>$48 / year</span>
                 </div>
                 <p style={{ margin:"0 0 14px", fontSize:12.5, color:C.text2 }}>$4/month · save 20% vs monthly</p>
-                <span role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_ANNUAL_PRICE_ID)}
-                  style={{ display:"block", textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor: upgradeBusy ? C.text3 : C.blue, borderRadius:10, padding:"12px 0", cursor: upgradeBusy ? "default" : "pointer" }}>
+                <span style={{ display:"block", textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor: upgradeBusy ? C.text3 : C.blue, borderRadius:10, padding:"12px 0" }}>
                   {upgradeBusy ? "Redirecting…" : "Start annual plan"}
                 </span>
               </div>
 
-              {/* Monthly plan */}
-              <div style={{ borderRadius:14, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, padding:"16px 18px" }}>
+              {/* Monthly plan — whole box is clickable. */}
+              <div role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_MONTHLY_PRICE_ID)}
+                style={{ borderRadius:14, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, padding:"16px 18px", cursor: upgradeBusy ? "default" : "pointer" }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
                   <span style={{ fontSize:15.5, fontWeight:700, color:C.text }}>Monthly</span>
                   <span style={{ fontSize:15.5, fontWeight:700, color:C.text }}>$5 / month</span>
                 </div>
                 <p style={{ margin:"0 0 14px", fontSize:12.5, color:C.text2 }}>Cancel any time</p>
-                <span role="button" onClick={() => startCheckout(import.meta.env.VITE_STRIPE_MONTHLY_PRICE_ID)}
-                  style={{ display:"block", textAlign:"center", fontSize:15, fontWeight:600, color:C.blueText, backgroundColor:C.bg, border:`1.5px solid ${C.blueBorder}`, borderRadius:10, padding:"12px 0", cursor: upgradeBusy ? "default" : "pointer" }}>
+                <span style={{ display:"block", textAlign:"center", fontSize:15, fontWeight:600, color:C.blueText, backgroundColor:C.bg, border:`1.5px solid ${C.blueBorder}`, borderRadius:10, padding:"12px 0" }}>
                   {upgradeBusy ? "Redirecting…" : "Start monthly plan"}
                 </span>
               </div>
