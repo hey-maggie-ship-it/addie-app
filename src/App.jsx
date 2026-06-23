@@ -1211,6 +1211,21 @@ export default function Ankora() {
     setViewingSession(v => (v && v.id === id ? { ...v, note: trimmed } : v));
   };
 
+  // Resume an archived conversation: pull it back out of history and make it the
+  // active chat again. Archives whatever's currently active first so nothing is lost.
+  // (Replays the stored messages as-is — cheap for normal-length chats. A summarized
+  // path for very long histories would be the future Pro upgrade.)
+  const resumeSession = (sess) => {
+    if (!sess) return;
+    if (messages.length > 0) archiveMessages(messages);
+    setSessions(prev => prev.filter(s => s.id !== sess.id));
+    setMessages(sess.messages || []);
+    setStarted(true); setPastExpanded(true);
+    setPending([]); actedSigsRef.current = new Set();
+    setLastActivity(Date.now());
+    setViewingSession(null); setShowHistory(false); setTab("chat");
+  };
+
   const sendMessage = async (userText) => {
     if (!userText.trim() || loading) return;
     posthog.capture("message_sent");
@@ -1897,6 +1912,12 @@ export default function Ankora() {
               onChange={e => setSessionNote(viewingSession.id, e.target.value)}
               placeholder="✎ Edit title…"
               style={{ flexShrink:0, width:130, fontSize:12.5, padding:"7px 10px", borderRadius:9, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, outline:"none" }} />
+          </div>
+          <div style={{ padding:"10px 16px", borderBottom:`1.5px solid ${C.borderLt}`, flexShrink:0 }}>
+            <span role="button" onClick={() => resumeSession(viewingSession)}
+              style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:7, width:"100%", fontSize:14, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:10, padding:"11px 0", cursor:"pointer" }}>
+              ↻ Resume this conversation
+            </span>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"14px 16px" }}>
             {viewingSession.messages.map((m, i) => {
