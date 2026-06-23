@@ -81,6 +81,11 @@ const STARTERS = [
 const MAX_TODAY = 3;
 const TIMER_PRESETS = [10, 15, 25, 45];
 
+// Stable fingerprint of a suggestion chip. Used both to dedupe re-suggested cards
+// against what's already waiting AND to remember which cards the user already
+// confirmed/skipped, so an identical re-suggestion from the model doesn't reappear.
+const suggestionSig = (s) => `${s.type}|${s.targetId||""}|${s.text||s.title||""}|${s.when||""}|${s.minutes||""}`;
+
 const BUCKET_STYLE = {
   today:  { bg: "#FEF2F2", text: "#B91C1C", label: "Today" },
   week:   { bg: "#FFFBEB", text: "#92400E", label: "This week" },
@@ -170,7 +175,7 @@ TASKS WITH PENDING NEXT STEPS:
 ${withNext.length ? withNext.map(t=>`- "${t.text}" → next: "${t.nextStep}" [id:${t.id}]`).join("\n") : "none"}
 
 GROCERY: ${gItems.length ? gItems.map(g=>`"${g.text}"${g.store?` (from ${g.store})`:""} [id:${g.id}]`).join(", ") : "Empty"}
-Today has ${today.length}/${MAX_TODAY} slots. ${today.length>=MAX_TODAY?"Today is FULL.":`${MAX_TODAY-today.length} remaining.`}
+SLOT COUNT (authoritative): Today has ${today.length} of ${MAX_TODAY} task slots filled, leaving ${Math.max(0, MAX_TODAY-today.length)} open${today.length>=MAX_TODAY?" (Today is FULL)":""}. If the user asks how many slots are left, state exactly this open number. Do NOT recompute or estimate it yourself, and do not contradict it.
 
 When the user explicitly says they finished or completed something on the board, MARK IT DONE via the SUGGESTIONS block — don't just verbally acknowledge. NEVER suggest type:complete for something the user said they didn't do, couldn't start, skipped, or hasn't done yet.
 
@@ -213,7 +218,9 @@ Rules: Before emitting any suggestion, CHECK CURRENT TASK MEMORY, GROCERY, and D
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
-STYLE: Warm, direct, short paragraphs. Bold one key action with **bold**. No "just do X." No shame. Acknowledge wins. Smallest physical first step when stuck.`;
+STYLE: Warm, direct, short paragraphs. Bold one key action with **bold**. No "just do X." No shame. Acknowledge wins. Smallest physical first step when stuck.
+
+PUNCTUATION: Never use em dashes or en dashes (the "—" and "–" characters) anywhere in your replies. When you'd reach for one, use a comma, a period, a colon, or parentheses instead. This applies even though these instructions themselves contain dashes.`;
 }
 
 export default function Ankora() {
@@ -291,6 +298,10 @@ export default function Ankora() {
   const wakeLockRef = useRef(null);
   const pendingPushIdRef = useRef(null);
   const alarmLoopRef = useRef(null);
+  // Signatures of suggestion cards the user has acted on (confirmed or skipped)
+  // in the current conversation, so the model re-suggesting the same thing won't
+  // make a handled card pop back up. Reset when the conversation resets.
+  const actedSigsRef = useRef(new Set());
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
   // JSON of the last data we synced (saved or received), to dedupe + ignore echoes.
@@ -722,7 +733,7 @@ export default function Ankora() {
     setSubscription(null);
     setTasks([]); setGrocery([]); setProfile(null);
     setStarted(false); setPending([]); setAuthSent(false); setAuthEmail(""); setOtpCode("");
-    setAuthMode("code"); setAuthPassword("");
+    setAuthMode("code"); setAuthPassword(""); actedSigsRef.current = new Set();
   };
 
   const startCheckout = async (priceId) => {
@@ -1192,6 +1203,7 @@ export default function Ankora() {
   const startNewSession = () => {
     archiveMessages(messages);
     setMessages([]); setStarted(false); setPastExpanded(false); setPending([]); setShowHistory(false);
+    actedSigsRef.current = new Set();
   };
 
   // User-written note on an archived conversation, so they can find it later.
@@ -1210,6 +1222,7 @@ export default function Ankora() {
     if (!started && !pastExpanded && messages.length > 0) {
       archiveMessages(messages);
       base = [];
+      actedSigsRef.current = new Set();   // fresh conversation → forget prior acted cards
     }
     const next = [...base, { role: "user", content: userText, id: "u"+Date.now() }];
     setMessages(next); setInput(""); setLoading(true); setStarted(true); setPending([]); setLastActivity(Date.now());
@@ -1246,9 +1259,13 @@ export default function Ankora() {
       // Keep any cards the user hasn't acted on yet (they may have navigated away)
       // and append this reply's new ones, skipping duplicates of what's already waiting.
       if (chips.length) setPending(prev => {
-        const sig = s => `${s.type}|${s.targetId||""}|${s.text||s.title||""}|${s.when||""}|${s.minutes||""}`;
-        const seen = new Set(prev.map(sig));
-        return [...prev, ...chips.filter(c => !seen.has(sig(c)))];
+        const seen = new Set(prev.map(suggestionSig));
+        // Skip duplicates of what's already waiting AND anything the user already
+        // confirmed/skipped this conversation (model sometimes re-suggests done work).
+        return [...prev, ...chips.filter(c => {
+          const sg = suggestionSig(c);
+          return !seen.has(sg) && !actedSigsRef.current.has(sg);
+        })];
       });
     } catch { setMessages([...next, { role: "assistant", content: "Connection issue. Take a breath — try again.", id: "e"+Date.now() }]); }
     setLoading(false);
@@ -1290,9 +1307,14 @@ export default function Ankora() {
     else if (s.type === "reminder") { scheduleReminder(s.text, s.when); }
     else if (s.type === "remember") { addMemory(s.text); }
     else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = s.bucket==="today"&&n>=MAX_TODAY?"week":s.bucket; setTasks(p => [...p, {id:"t"+Date.now(), text:s.text, bucket:b, done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
+    actedSigsRef.current.add(suggestionSig(s));   // remember it so a re-suggestion doesn't reappear
     setPending(p => p.filter(x => x.id !== s.id));
   };
-  const dismiss = (id) => setPending(p => p.filter(x => x.id !== id));
+  const dismiss = (id) => setPending(p => {
+    const c = p.find(x => x.id === id);
+    if (c) actedSigsRef.current.add(suggestionSig(c));   // skipped cards shouldn't come back either
+    return p.filter(x => x.id !== id);
+  });
   const completeTask = (id) => { const t = tasks.find(t=>t.id===id); setTasks(p => p.map(t => t.id===id?{...t,done:true,completedAt:new Date().toISOString()}:t)); setMenuId(null); showToast(`✓  ${t?.text}`); };
   const deleteTask = (id) => { setTasks(p => p.filter(t => t.id!==id)); setMenuId(null); };
   const moveTask = (id, b) => { setTasks(p => p.map(t => t.id===id?{...t,bucket:b}:t)); setMenuId(null); };
@@ -1316,7 +1338,7 @@ export default function Ankora() {
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
   const doClearAll = () => {
     setClearBackup({ tasks, grocery, memory, notes });   // snapshot board + grocery + memory + notes so the user can undo
-    setTasks([]); setGrocery([]); setMessages([]); setReminders([]); setMemory([]); setNotes(""); setStarted(false); setPending([]);
+    setTasks([]); setGrocery([]); setMessages([]); setReminders([]); setMemory([]); setNotes(""); setStarted(false); setPending([]); actedSigsRef.current = new Set();
     try{window.localStorage.removeItem(STORAGE_KEY);}catch{}
     setShowClearConfirm(false); setShowSettings(false);
     showToast("Data cleared");
