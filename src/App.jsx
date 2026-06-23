@@ -1915,7 +1915,7 @@ export default function Ankora() {
           </div>
           <div style={{ padding:"10px 16px", borderBottom:`1.5px solid ${C.borderLt}`, flexShrink:0 }}>
             <span role="button" onClick={() => resumeSession(viewingSession)}
-              style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:7, width:"100%", fontSize:14, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:10, padding:"11px 0", cursor:"pointer" }}>
+              style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:7, width:"100%", fontSize:14, fontWeight:700, color:C.blueText, backgroundColor:C.blueBg, border:`1.5px solid ${C.blueBorder}`, borderRadius:10, padding:"11px 0", cursor:"pointer" }}>
               ↻ Resume this conversation
             </span>
           </div>
@@ -2128,25 +2128,20 @@ export default function Ankora() {
               <div>
                 <div style={{ padding:"10px 0 18px" }}>
                   <h3 style={{ margin:"0 0 4px", fontSize:24, fontWeight:700, color:C.text }}>Hey, how's it going?</h3>
-                  <p style={{ margin:0, fontSize:14, color:C.text2 }}>Pick a starting point, or just tell me what's up.</p>
-                </div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                  {STARTERS.map(s => (
-                    <div key={s.label} onClick={() => sendMessage(s.prompt)} role="button"
-                      style={{ backgroundColor:C.bg2, border:`1.5px solid ${C.borderLt}`, borderRadius:14, padding:"14px 12px", cursor:"pointer", fontSize:14, color:C.text, lineHeight:1.4, fontWeight:600 }}>
-                      <span style={{ display:"block", fontSize:22, marginBottom:7 }}>{s.icon}</span>{s.label}
-                    </div>
-                  ))}
+                  <p style={{ margin:0, fontSize:14, color:C.text2 }}>{((messages.length > 0 && !pastExpanded) || sessions.length > 0) ? "Pick up where you left off, or start something new below." : "Pick a starting point, or just tell me what's up."}</p>
                 </div>
                 {messages.length > 0 && !pastExpanded && (
                   <div onClick={() => { setPastExpanded(true); setStarted(true); }} role="button"
-                    style={{ marginTop:18, padding:"12px 14px", backgroundColor:C.bg2, border:`1px solid ${C.borderLt}`, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}>
-                    <span style={{ fontSize:13, color:C.text2 }}>↑ Continue where you left off · {messages.length} messages</span>
-                    <span style={{ fontSize:12, color:C.blueText, fontWeight:600 }}>Continue</span>
+                    style={{ marginBottom:18, padding:"15px 16px", backgroundColor:C.blueBg, border:`1.5px solid ${C.blueBorder}`, borderRadius:14, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, cursor:"pointer" }}>
+                    <div style={{ minWidth:0 }}>
+                      <p style={{ margin:"0 0 2px", fontSize:15, fontWeight:700, color:C.blueText }}>Continue where you left off</p>
+                      <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>{messages.length} messages · pick the thread back up</p>
+                    </div>
+                    <span style={{ flexShrink:0, fontSize:13.5, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:9, padding:"9px 16px" }}>Continue</span>
                   </div>
                 )}
                 {sessions.length > 0 && (
-                  <div style={{ marginTop:18 }}>
+                  <div style={{ marginBottom:22 }}>
                     <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Recent</p>
                     {sessions.slice(0, 15).map(s => (
                       <div key={s.id} onClick={() => setViewingSession(s)} role="button"
@@ -2160,6 +2155,15 @@ export default function Ankora() {
                     ))}
                   </div>
                 )}
+                <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>{((messages.length > 0 && !pastExpanded) || sessions.length > 0) ? "Or start something new" : "Start a conversation"}</p>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  {STARTERS.map(s => (
+                    <div key={s.label} onClick={() => sendMessage(s.prompt)} role="button"
+                      style={{ display:"flex", alignItems:"center", gap:8, backgroundColor:C.bg2, border:`1.5px solid ${C.borderLt}`, borderRadius:12, padding:"11px 12px", cursor:"pointer", fontSize:13, color:C.text2, lineHeight:1.3, fontWeight:600 }}>
+                      <span style={{ fontSize:17, flexShrink:0 }}>{s.icon}</span>{s.label}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             {(pastExpanded || started) && messages.map((m, i) => {
