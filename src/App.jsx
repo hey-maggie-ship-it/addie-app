@@ -1221,9 +1221,13 @@ export default function Ankora() {
       archiveMessages(messages);
       base = [];
       actedSigsRef.current = new Set();   // fresh conversation → forget prior acted cards
+      setPending([]);                     // and drop any leftover cards from the archived convo
     }
     const next = [...base, { role: "user", content: userText, id: "u"+Date.now() }];
-    setMessages(next); setInput(""); setLoading(true); setStarted(true); setPending([]); setLastActivity(Date.now());
+    // NOTE: we intentionally do NOT clear pending here. Un-acted cards persist across
+    // messages within a conversation; they're only removed by Confirm/Skip/Clear-all,
+    // and re-suggested duplicates / already-handled cards are filtered in the merge below.
+    setMessages(next); setInput(""); setLoading(true); setStarted(true); setLastActivity(Date.now());
     if (taRef.current) { taRef.current.style.height = "auto"; }
     try {
       const res = await fetch("/api/chat", {
