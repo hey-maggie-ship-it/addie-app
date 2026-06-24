@@ -2149,7 +2149,7 @@ export default function Ankora() {
                       <p style={{ margin:"0 0 2px", fontSize:15, fontWeight:700, color:C.blueText }}>Continue where you left off</p>
                       <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>{messages.length} messages · pick the thread back up</p>
                     </div>
-                    <span style={{ flexShrink:0, fontSize:13.5, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:9, padding:"9px 16px" }}>Continue</span>
+                    <span style={{ flexShrink:0, fontSize:13.5, fontWeight:700, color:"#fff", backgroundColor:C.accent, borderRadius:9, padding:"9px 16px" }}>Continue</span>
                   </div>
                 )}
                 {sessions.length > 0 && (
@@ -2457,7 +2457,7 @@ export default function Ankora() {
             style={{ flex:1, resize:"none", fontSize:16, padding:"13px 15px", borderRadius:20, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, fontFamily:"inherit", lineHeight:1.5, outline:"none", boxSizing:"border-box", maxHeight:160 }}
             onInput={e => { e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,160)+"px"; }} />
           <span onClick={() => sendMessage(input)} role="button"
-            style={{ width:44, height:44, borderRadius:"50%", backgroundColor:input.trim()&&!loading?C.blue:C.bg2, cursor:input.trim()&&!loading?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color:input.trim()&&!loading?"#fff":C.text3, fontWeight:700, marginBottom:2 }}>↑</span>
+            style={{ width:44, height:44, borderRadius:"50%", backgroundColor:input.trim()&&!loading?C.accent:C.bg2, cursor:input.trim()&&!loading?"pointer":"default", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, fontSize:18, color:input.trim()&&!loading?"#fff":C.text3, fontWeight:700, marginBottom:2 }}>↑</span>
         </div>
       )}
 

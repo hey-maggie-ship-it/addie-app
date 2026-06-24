@@ -61,6 +61,7 @@
       min-height: 92vh; display: flex; flex-direction: column;
       align-items: center; justify-content: center; text-align: center;
       padding: 140px 24px 80px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, #0A1742 0%, #14102E 45%, var(--navy) 100%);
     }
     .hero::before {
       content: ''; position: absolute; top: -15%; left: 50%;
@@ -104,9 +105,10 @@
       border-top: 1px solid rgba(255,255,255,0.07);
       border-bottom: 1px solid rgba(255,255,255,0.07);
       padding: 18px 40px; display: flex; align-items: center; justify-content: center;
-      gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--white-40);
+      gap: 6px 10px; flex-wrap: wrap; font-size: 13px; color: var(--white-40);
       text-align: center;
     }
+    .strip-lead { color: var(--white-40); }
     .strip b { color: var(--white-70); font-weight: 500; }
     .strip .dot { opacity: 0.4; }
 
@@ -253,7 +255,8 @@
       .step { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.06); padding: 28px 0; }
       .step:last-child { border-bottom: none; }
       footer { flex-direction: column; align-items: flex-start; padding: 28px 20px; }
-      .strip { padding: 18px 20px; }
+      .strip { flex-direction: column; gap: 5px; padding: 22px 20px; }
+      .strip .dot { display: none; }
       .cal-card { flex-direction: column; gap: 16px; }
     }
   </style>
@@ -280,7 +283,12 @@
 </section>
 
 <div class="strip">
-  Built for people who are &nbsp;<b>brilliant but overwhelmed</b>&nbsp; <span class="dot">&middot;</span> &nbsp;<b>high achievers with ADHD</b>&nbsp; <span class="dot">&middot;</span> &nbsp;<b>tired of to do apps that don't stick</b>
+  <span class="strip-lead">Built for people who are</span>
+  <b>brilliant but overwhelmed</b>
+  <span class="dot">&middot;</span>
+  <b>high achievers with ADHD</b>
+  <span class="dot">&middot;</span>
+  <b>tired of to do apps that don't stick</b>
 </div>
 
 <div class="section">
