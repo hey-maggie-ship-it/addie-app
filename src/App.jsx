@@ -95,7 +95,14 @@ const BUCKET_STYLE = {
 const C = {
   bg: "#ffffff", bg2: "#F9FAFB", border: "#9CA3AF", borderLt: "#E5E7EB",
   text: "#111827", text2: "#6B7280", text3: "#9CA3AF",
-  blue: "#0B84FE", blueBg: "#EFF6FF", blueText: "#1D4ED8", blueBorder: "#BFDBFE",
+  // Brand indigo-purple (the logo's night sky) is the primary color. The "blue*"
+  // token NAMES are kept so all existing UI inherits it, but the VALUES are now the
+  // brand purple. Real iMessage blue lives on in `bubble` for chat bubbles only.
+  blue: "#2D2553", blueBg: "#EDEBF5", blueText: "#2D2553", blueBorder: "#CFC9E6",
+  bubble: "#0B84FE",
+  // Sunset orange accent (the logo's horizon). accentText is the darker shade that
+  // stays readable as small text or white-on-orange fills.
+  accent: "#E07848", accentBg: "#FFF0E7", accentText: "#B45129", accentBorder: "#F5C4B3",
   green: "#059669", greenBg: "#D1FAE5", greenText: "#065F46",
   danger: "#DC2626", dangerBg: "#FEF2F2",
   indigo: "#4F46E5", indigoBg: "#EEF2FF", indigoLight: "#6366F1",
@@ -1926,7 +1933,7 @@ export default function Ankora() {
               const grp = viewingSession.messages[i-1] && viewingSession.messages[i-1].role === m.role;
               return (
                 <div key={m.id||i} style={{ display:"flex", flexDirection:"column", alignItems:u?"flex-end":"flex-start", marginTop:grp?3:12 }}>
-                  <div style={{ maxWidth:"76%", backgroundColor:u?C.blue:"#E9E9EB", color:u?"#fff":"#000", borderRadius:18, padding:"9px 14px", fontSize:14.5, lineHeight:1.5 }}>{renderContent(m.content)}</div>
+                  <div style={{ maxWidth:"76%", backgroundColor:u?C.bubble:"#E9E9EB", color:u?"#fff":"#000", borderRadius:18, padding:"9px 14px", fontSize:14.5, lineHeight:1.5 }}>{renderContent(m.content)}</div>
                 </div>
               );
             })}
@@ -2028,7 +2035,7 @@ export default function Ankora() {
                 return (
                   <div key={plan.key} role="button" onClick={() => setSelectedPlan(plan.key)}
                     style={{ borderRadius:14, border:`2px solid ${sel ? C.blue : C.borderLt}`, backgroundColor: sel ? C.blueBg : C.bg2, padding:"16px 18px", position:"relative", cursor:"pointer" }}>
-                    {plan.best && <div style={{ position:"absolute", top:-10, left:18, fontSize:11, fontWeight:700, color:"#fff", backgroundColor:C.blue, borderRadius:20, padding:"3px 12px" }}>BEST VALUE</div>}
+                    {plan.best && <div style={{ position:"absolute", top:-10, left:18, fontSize:11, fontWeight:700, color:"#fff", backgroundColor:C.accentText, borderRadius:20, padding:"3px 12px" }}>BEST VALUE</div>}
                     <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                       <div style={{ width:20, height:20, borderRadius:"50%", border:`2px solid ${sel ? C.blue : C.border}`, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
                         {sel && <div style={{ width:10, height:10, borderRadius:"50%", backgroundColor:C.blue }} />}
@@ -2176,7 +2183,7 @@ export default function Ankora() {
               const grp = messages[i-1] && messages[i-1].role===m.role;
               return (
                 <div key={m.id} style={{ display:"flex", flexDirection:"column", alignItems:u?"flex-end":"flex-start", marginTop:grp?3:12 }}>
-                  <div style={{ maxWidth:"76%", backgroundColor:u?C.blue:"#E9E9EB", color:u?"#fff":"#000", borderRadius:18, padding:"9px 14px", fontSize:14.5, lineHeight:1.5 }}>{renderContent(m.content)}</div>
+                  <div style={{ maxWidth:"76%", backgroundColor:u?C.bubble:"#E9E9EB", color:u?"#fff":"#000", borderRadius:18, padding:"9px 14px", fontSize:14.5, lineHeight:1.5 }}>{renderContent(m.content)}</div>
                   {m.upgrade && (
                     <div style={{ maxWidth:"88%", width:"100%", marginTop:8, borderRadius:14, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, padding:"14px 16px" }}>
                       <p style={{ margin:"0 0 10px", fontSize:13.5, fontWeight:600, color:C.blueText }}>Upgrade to Ankora Pro for unlimited</p>
