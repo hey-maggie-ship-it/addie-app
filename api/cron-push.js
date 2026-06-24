@@ -4,7 +4,7 @@ import webpush from "web-push";
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 
 webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT || "mailto:hello@addie.app",
+  process.env.VAPID_SUBJECT || "mailto:hello@ankorahq.com",
   process.env.VAPID_PUBLIC_KEY,
   process.env.VAPID_PRIVATE_KEY
 );

@@ -37,11 +37,11 @@ export default function handler(req, res) {
     const ics = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
-      "PRODID:-//Addie//EN",
+      "PRODID:-//Ankora//EN",
       "CALSCALE:GREGORIAN",
       "METHOD:PUBLISH",
       "BEGIN:VEVENT",
-      `UID:addie-${Date.now()}@addie.app`,
+      `UID:ankora-${Date.now()}@ankorahq.com`,
       `DTSTAMP:${toIcsUtc(new Date())}`,
       `DTSTART:${toIcsUtc(startDate)}`,
       `DTEND:${toIcsUtc(endDate)}`,
