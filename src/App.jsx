@@ -13,6 +13,9 @@ const TIMER_KEY = "addie-timer-v1";
 const PROFILE_KEY = "addie-profile-v1";
 const MIGRATED_KEY = "addie-migrated-v1"; // which account this device has already merged its local data into
 const IDLE_RESET_MS = 60 * 60 * 1000;
+// How many past sessions to show inline on the home screen before "See all"
+// hands off to the full archive overlay — keeps the landing from scrolling forever.
+const HOME_RECENT_LIMIT = 4;
 
 // Read this device's locally-stored data (the pre-accounts data, or offline cache).
 function readLocalData() {
@@ -1446,6 +1449,15 @@ export default function Ankora() {
   const timerPct    = timer && timer.total>0 ? (timer.remaining/timer.total)*100 : 0;
   const idleNow     = Date.now() - lastActivity > IDLE_RESET_MS;
 
+  // ── Home-screen "Continue" pill + capped Recent list ──
+  // Always surface the LAST conversation as a prominent Continue pill: the active
+  // un-archived chat if one exists, otherwise the most-recent archived session.
+  // The remaining history shows below the starters, capped — "See all" hands off
+  // to the full archive overlay so the landing never scrolls forever.
+  const hasActiveConvo = messages.length > 0 && !pastExpanded;
+  const continueSess   = hasActiveConvo ? null : (sessions.length > 0 ? sessions[0] : null);
+  const homeRecent     = hasActiveConvo ? sessions : sessions.slice(1);
+
   // ── Fix 5: More vertical padding in chat input ──
   const fieldStyle = { display:"block", width:"100%", height:46, minHeight:46, fontSize:16, padding:"0 14px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, fontFamily:"inherit", outline:"none", boxSizing:"border-box", appearance:"none", WebkitAppearance:"none" };
   const btnStyle = { display:"inline-flex", alignItems:"center", justifyContent:"center", height:46, padding:"0 22px", fontSize:14, borderRadius:10, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, color:C.blueText, cursor:"pointer", fontWeight:600, flexShrink:0, boxSizing:"border-box" };
@@ -2142,20 +2154,39 @@ export default function Ankora() {
                   <h3 style={{ margin:"0 0 4px", fontSize:24, fontWeight:700, color:C.text }}>Hey, how's it going?</h3>
                   <p style={{ margin:0, fontSize:14, color:C.text2 }}>{((messages.length > 0 && !pastExpanded) || sessions.length > 0) ? "Pick up where you left off, or start something new below." : "Pick a starting point, or just tell me what's up."}</p>
                 </div>
-                {messages.length > 0 && !pastExpanded && (
-                  <div onClick={() => { setPastExpanded(true); setStarted(true); }} role="button"
-                    style={{ marginBottom:18, padding:"15px 16px", backgroundColor:C.blueBg, border:`1.5px solid ${C.blueBorder}`, borderRadius:14, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, cursor:"pointer" }}>
+                {/* 1. Continue where you left off — active chat, else the most-recent archived session */}
+                {(hasActiveConvo || continueSess) && (
+                  <div role="button"
+                    onClick={hasActiveConvo ? () => { setPastExpanded(true); setStarted(true); } : () => resumeSession(continueSess)}
+                    style={{ marginBottom:20, padding:"15px 16px", backgroundColor:C.blueBg, border:`1.5px solid ${C.blueBorder}`, borderRadius:14, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, cursor:"pointer" }}>
                     <div style={{ minWidth:0 }}>
                       <p style={{ margin:"0 0 2px", fontSize:15, fontWeight:700, color:C.blueText }}>Continue where you left off</p>
-                      <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>{messages.length} messages · pick the thread back up</p>
+                      <p style={{ margin:0, fontSize:12.5, color:C.text2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                        {hasActiveConvo
+                          ? `${messages.length} messages · pick the thread back up`
+                          : `${continueSess.note || continueSess.label || fmtCalDate(continueSess.startedAt)} · ${(continueSess.messages||[]).length} messages`}
+                      </p>
                     </div>
                     <span style={{ flexShrink:0, fontSize:13.5, fontWeight:700, color:"#fff", backgroundColor:C.accentText, borderRadius:9, padding:"9px 16px" }}>Continue</span>
                   </div>
                 )}
-                {sessions.length > 0 && (
-                  <div style={{ marginBottom:22 }}>
+
+                {/* 2. Start something new */}
+                <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>{(hasActiveConvo || sessions.length > 0) ? "Or start something new" : "Start a conversation"}</p>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  {STARTERS.map(s => (
+                    <div key={s.label} onClick={() => sendMessage(s.prompt)} role="button"
+                      style={{ display:"flex", alignItems:"center", gap:8, backgroundColor:C.bg2, border:`1.5px solid ${C.borderLt}`, borderRadius:12, padding:"11px 12px", cursor:"pointer", fontSize:13, color:C.text2, lineHeight:1.3, fontWeight:600 }}>
+                      <span style={{ fontSize:17, flexShrink:0 }}>{s.icon}</span>{s.label}
+                    </div>
+                  ))}
+                </div>
+
+                {/* 3. The rest of history — capped, with "See all" handing off to the archive overlay */}
+                {homeRecent.length > 0 && (
+                  <div style={{ marginTop:24 }}>
                     <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>Recent</p>
-                    {sessions.slice(0, 15).map(s => (
+                    {homeRecent.slice(0, HOME_RECENT_LIMIT).map(s => (
                       <div key={s.id} onClick={() => setViewingSession(s)} role="button"
                         style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", marginBottom:6, borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
                         <div style={{ minWidth:0 }}>
@@ -2165,17 +2196,14 @@ export default function Ankora() {
                         <span style={{ fontSize:12, color:C.text3, flexShrink:0, marginLeft:10 }}>{s.messages.length} msg</span>
                       </div>
                     ))}
+                    {homeRecent.length > HOME_RECENT_LIMIT && (
+                      <div onClick={() => setShowHistory(true)} role="button"
+                        style={{ marginTop:2, padding:"11px 14px", textAlign:"center", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg, cursor:"pointer", fontSize:13, fontWeight:600, color:C.blueText }}>
+                        See all {homeRecent.length} past sessions →
+                      </div>
+                    )}
                   </div>
                 )}
-                <p style={{ fontSize:12, color:C.text3, margin:"0 0 8px", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>{((messages.length > 0 && !pastExpanded) || sessions.length > 0) ? "Or start something new" : "Start a conversation"}</p>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                  {STARTERS.map(s => (
-                    <div key={s.label} onClick={() => sendMessage(s.prompt)} role="button"
-                      style={{ display:"flex", alignItems:"center", gap:8, backgroundColor:C.bg2, border:`1.5px solid ${C.borderLt}`, borderRadius:12, padding:"11px 12px", cursor:"pointer", fontSize:13, color:C.text2, lineHeight:1.3, fontWeight:600 }}>
-                      <span style={{ fontSize:17, flexShrink:0 }}>{s.icon}</span>{s.label}
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
             {(pastExpanded || started) && messages.map((m, i) => {
