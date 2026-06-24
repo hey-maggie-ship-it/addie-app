@@ -2149,7 +2149,7 @@ export default function Ankora() {
                       <p style={{ margin:"0 0 2px", fontSize:15, fontWeight:700, color:C.blueText }}>Continue where you left off</p>
                       <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>{messages.length} messages · pick the thread back up</p>
                     </div>
-                    <span style={{ flexShrink:0, fontSize:13.5, fontWeight:700, color:"#fff", backgroundColor:C.accent, borderRadius:9, padding:"9px 16px" }}>Continue</span>
+                    <span style={{ flexShrink:0, fontSize:13.5, fontWeight:700, color:"#fff", backgroundColor:C.accentText, borderRadius:9, padding:"9px 16px" }}>Continue</span>
                   </div>
                 )}
                 {sessions.length > 0 && (
@@ -2467,7 +2467,7 @@ export default function Ankora() {
           const active = tab===t.key;
           return (
             <div key={t.key} onClick={() => setTab(t.key)} role="button"
-              style={{ flex:1, padding:"8px 0 10px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:2, color:active?C.blueText:C.text3 }}>
+              style={{ flex:1, padding:"8px 0 10px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:2, color:active?C.accentText:C.text3 }}>
               <div style={{ position:"relative", fontSize:20, opacity:active?1:0.55 }}>
                 {t.glyph}
                 {t.count>0 && <span style={{ position:"absolute", top:-5, right:-12, fontSize:10, fontWeight:700, backgroundColor:"#FF3B30", color:"#fff", borderRadius:10, padding:"1px 5px", minWidth:16, textAlign:"center" }}>{t.count}</span>}
@@ -2484,9 +2484,9 @@ export default function Ankora() {
         </span>
         <span style={{ display:"flex", gap:16, flexShrink:0, alignItems:"center" }}>
           {subscription === "active"
-            ? <span style={{ fontSize:12, fontWeight:700, color:C.blueText, backgroundColor:C.blueBg, borderRadius:20, padding:"2px 10px" }}>✦ Pro</span>
+            ? <span style={{ fontSize:12, fontWeight:700, color:C.accentText, backgroundColor:C.accentBg, borderRadius:20, padding:"2px 10px" }}>✦ Pro</span>
             : subscription === "free"
-              ? <span onClick={() => setShowUpgrade(true)} role="button" style={{ fontSize:12.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Upgrade</span>
+              ? <span onClick={() => setShowUpgrade(true)} role="button" style={{ fontSize:12.5, color:C.accentText, cursor:"pointer", fontWeight:600 }}>Upgrade</span>
               : null}
           <a href="/privacy.html" target="_blank" rel="noreferrer" style={{ fontSize:12.5, color:C.text2, textDecoration:"underline" }}>Privacy</a>
           <a href="/terms.html" target="_blank" rel="noreferrer" style={{ fontSize:12.5, color:C.text2, textDecoration:"underline" }}>Terms</a>
