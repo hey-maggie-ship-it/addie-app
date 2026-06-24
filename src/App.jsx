@@ -1788,24 +1788,24 @@ export default function Ankora() {
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
               <p style={{ margin:"0 0 12px", fontSize:14, fontWeight:600, color:C.text }}>Plan</p>
               {subscription === "active" ? (
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg }}>
+                <div role="button" onClick={openBillingPortal}
+                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, cursor:"pointer" }}>
                   <div>
                     <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:700, color:C.blueText }}>✦ Ankora Pro</p>
                     <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>Unlimited messages</p>
                   </div>
-                  <span role="button" onClick={openBillingPortal}
-                    style={{ fontSize:12.5, color:C.blueText, fontWeight:600, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"6px 14px", backgroundColor:C.bg, cursor:"pointer" }}>
+                  <span style={{ fontSize:12.5, color:C.blueText, fontWeight:600, border:`1.5px solid ${C.blueBorder}`, borderRadius:8, padding:"6px 14px", backgroundColor:C.bg }}>
                     Manage
                   </span>
                 </div>
               ) : (
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2 }}>
+                <div role="button" onClick={() => { setShowSettings(false); setShowUpgrade(true); }}
+                  style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
                   <div>
                     <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Free</p>
                     <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>25 messages / day</p>
                   </div>
-                  <span role="button" onClick={() => { setShowSettings(false); setShowUpgrade(true); }}
-                    style={{ fontSize:12.5, color:"#fff", fontWeight:700, backgroundColor:C.blue, borderRadius:8, padding:"7px 16px", cursor:"pointer" }}>
+                  <span style={{ fontSize:12.5, color:"#fff", fontWeight:700, backgroundColor:C.blue, borderRadius:8, padding:"7px 16px" }}>
                     Upgrade
                   </span>
                 </div>
