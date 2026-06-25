@@ -1,5 +1,5 @@
 -- ──────────────────────────────────────────────────────────
--- Addie database schema. Run this ONCE in your Supabase project:
+-- Ankora database schema. Run this ONCE in your Supabase project:
 -- Supabase Dashboard → SQL Editor → New query → paste this → Run.
 --
 -- One row per user holds their task board, grocery list, and profile.

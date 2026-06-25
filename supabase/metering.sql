@@ -1,5 +1,5 @@
 -- ──────────────────────────────────────────────────────────
--- Addie usage metering + per-user daily rate limiting.
+-- Ankora usage metering + per-user daily rate limiting.
 -- Run this ONCE in your Supabase project: SQL Editor → New query → Run.
 --
 -- Counts each user's messages per day in a table they CANNOT touch directly

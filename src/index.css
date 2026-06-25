@@ -1,4 +1,4 @@
-/* Minimal global reset. Addie styles everything else inline. */
+/* Minimal global reset. Ankora styles everything else inline. */
 :root {
   /* Force light rendering so form controls and backgrounds don't auto-darken
      when the user's OS is in dark mode. */

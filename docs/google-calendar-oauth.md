@@ -10,7 +10,7 @@ needs your login + org. This is the click-by-click so you can start it in ~30 mi
 ---
 
 ## 0. Before you start — have these ready
-- The **live production domain** for Addie (verification needs a real homepage +
+- The **live production domain** for Ankora (verification needs a real homepage +
   privacy policy on a domain you own; `*.vercel.app` is risky — use the custom domain).
 - The existing **Privacy Policy** and **Terms** pages (you already ship
   `/privacy.html` and `/terms.html` — make sure the privacy policy explicitly says
@@ -18,16 +18,16 @@ needs your login + org. This is the click-by-click so you can start it in ~30 mi
   don't sell it). Google reviewers read this.
 
 ## 1. Google Cloud project
-1. https://console.cloud.google.com → create a project (e.g. "Addie").
+1. https://console.cloud.google.com → create a project (e.g. "Ankora").
 2. **APIs & Services → Library → Google Calendar API → Enable.**
 
 ## 2. OAuth consent screen
 1. **APIs & Services → OAuth consent screen.**
 2. User type: **External** → Create.
 3. App info:
-   - App name: **Addie**
+   - App name: **Ankora**
    - User support email: your support address
-   - App logo: Addie icon (square PNG, <1MB) — a logo triggers a stricter brand
+   - App logo: Ankora icon (square PNG, <1MB) — a logo triggers a stricter brand
      review but looks legit; optional at first.
    - App domain → Application home page: `https://<your-domain>`
    - Privacy policy URL: `https://<your-domain>/privacy.html`
@@ -52,8 +52,8 @@ needs your login + org. This is the click-by-click so you can start it in ~30 mi
 1. Back on the OAuth consent screen, click **Publish app** → confirm.
 2. Google will prompt to **prepare for verification**. You'll need:
    - A **demo video** (screen recording) showing the OAuth consent flow and exactly
-     how Addie uses the calendar data. Reviewers require this for sensitive scopes.
-   - A written **scope justification**: *"Addie reads the user's upcoming events
+     how Ankora uses the calendar data. Reviewers require this for sensitive scopes.
+   - A written **scope justification**: *"Ankora reads the user's upcoming events
      (calendar.readonly) solely to show them in-app and help the user plan their
      day. Data is not stored long-term, not shared, and not sold."*
 3. Submit. **Sensitive-scope review is typically days to a few weeks** and may come

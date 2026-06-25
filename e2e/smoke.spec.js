@@ -9,7 +9,7 @@ test("app boots and shows the signed-out welcome screen", async ({ page }) => {
   await page.goto("/");
 
   // Heading renders → React mounted and the Supabase client initialized.
-  await expect(page.getByRole("heading", { name: /Welcome to Addie/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Welcome to Ankora/i })).toBeVisible();
 
   // Sign-in affordance is present.
   await expect(page.locator('input[type="email"]')).toBeVisible();

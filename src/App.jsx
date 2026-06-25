@@ -60,7 +60,7 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
 }
 
-// First-launch onboarding — quick, skippable. Seeds Addie's tone; she adapts from there.
+// First-launch onboarding — quick, skippable. Seeds Ankora's tone; she adapts from there.
 const ONBOARD_STYLE = [
   { value: "direct", label: "Cut to the chase", hint: "Give me the answer, skip the preamble" },
   { value: "explore", label: "Talk it through first", hint: "Help me think out loud before deciding" },
@@ -162,7 +162,7 @@ function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", cal
   const notesBlock = (profile?.notesReadable && notes && notes.trim())
     ? `\n\nTHE USER'S NOTEPAD (they've chosen to let you read this — their own freeform notes; reference it when relevant, don't recite it back wholesale or treat every line as a task):\n${notes.trim()}`
     : "";
-  // Upcoming calendar events the user subscribed Addie to (read-only, next 7 days).
+  // Upcoming calendar events the user subscribed Ankora to (read-only, next 7 days).
   const calList = (calendar || []).filter(e => e && e.title);
   const calendarBlock = calList.length
     ? `\n\nUSER'S UPCOMING CALENDAR (next 7 days, read from their subscribed calendar — use it to understand what's going on in their life and plan realistically around it; do NOT list it back unless asked, and you can't edit it):\n${calList.map(e => `- ${e.when}: ${e.title}`).join("\n")}`
@@ -288,7 +288,7 @@ export default function Ankora() {
   const [sessions, setSessions] = useState([]);
   const [reminders, setReminders] = useState([]);          // chat-scheduled push reminders
   const [remindersExpanded, setRemindersExpanded] = useState(true);
-  const [memory, setMemory] = useState([]);                // durable facts Addie learns about the user
+  const [memory, setMemory] = useState([]);                // durable facts Ankora learns about the user
   const [notes, setNotes] = useState("");                  // freeform personal notepad (synced, private to user)
   const [calEvents, setCalEvents] = useState([]);          // upcoming events read from a subscribed iCal URL
   const [calStatus, setCalStatus] = useState("idle");      // idle | loading | ok | error
@@ -1090,7 +1090,7 @@ export default function Ankora() {
     }
   };
 
-  // Durable memory: Addie saves these silently as she learns about the user.
+  // Durable memory: Ankora saves these silently as she learns about the user.
   const MEMORY_CAP = 50;
   const addMemory = (text) => {
     const t = (text || "").trim();
@@ -1118,7 +1118,7 @@ export default function Ankora() {
     }
   };
 
-  // Fetch the user's subscribed calendar (if they've set one) so Addie can see
+  // Fetch the user's subscribed calendar (if they've set one) so Ankora can see
   // what's coming up. Times are read in the user's own timezone.
   const refreshCalendar = useCallback(async (urlOverride) => {
     const url = (urlOverride !== undefined ? urlOverride : profile?.calendarUrl) || "";
@@ -1283,7 +1283,7 @@ export default function Ankora() {
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
       const { clean, suggestions } = parseSuggestions(raw);
       setMessages([...next, { role: "assistant", content: clean, id: "a"+Date.now() }]);
-      // Memories apply silently (no confirmation chip) — Addie just remembers.
+      // Memories apply silently (no confirmation chip) — Ankora just remembers.
       const remembers = suggestions.filter(s => s.type === "remember");
       const chips = suggestions.filter(s => s.type !== "remember");
       let saved = 0;

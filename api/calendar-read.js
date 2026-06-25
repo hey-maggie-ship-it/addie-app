@@ -3,7 +3,7 @@
 //
 // The user pastes a private iCal ("secret address") URL in Settings. We fetch
 // it server-side (browsers can't, thanks to CORS), parse the upcoming events
-// out of the .ics, and return a small list the client can show Addie. This is
+// out of the .ics, and return a small list the client can show Ankora. This is
 // the no-OAuth "middle ground" for calendar READ: works with Google's secret
 // iCal address and Apple's public calendar link, no Google verification needed.
 //
@@ -198,7 +198,7 @@ export default async function handler(req, res) {
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     let resp;
     try {
-      resp = await fetch(raw, { signal: ctrl.signal, headers: { "User-Agent": "Addie/1.0 (+calendar-read)" }, redirect: "follow" });
+      resp = await fetch(raw, { signal: ctrl.signal, headers: { "User-Agent": "Ankora/1.0 (+calendar-read)" }, redirect: "follow" });
     } finally { clearTimeout(timer); }
     if (!resp.ok) return res.status(502).json({ error: `Calendar host returned ${resp.status}` });
 
