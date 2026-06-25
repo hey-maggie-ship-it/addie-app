@@ -103,7 +103,7 @@ export default async function handler(req, res) {
 
       await sendToSubscriptions(adminClient, row.user_id, {
         title: "🌅 Time for your check-in",
-        body: "Addie is here — what's on your plate today?",
+        body: "What's on your plate today?",
         requireInteraction: false,
       });
 

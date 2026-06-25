@@ -17,6 +17,11 @@ const IDLE_RESET_MS = 60 * 60 * 1000;
 // hands off to the full archive overlay — keeps the landing from scrolling forever.
 const HOME_RECENT_LIMIT = 4;
 
+// Some browsers and in-app webviews (e.g. the LinkedIn / Gmail in-app browser)
+// don't expose the Notification API at all, so a bare `Notification.permission`
+// throws "ReferenceError: Can't find variable: Notification". Read it safely.
+const safeNotifPermission = () => (typeof Notification !== "undefined" ? Notification.permission : "denied");
+
 // Read this device's locally-stored data (the pre-accounts data, or offline cache).
 function readLocalData() {
   let tasks = [], grocery = [], profile = null, messages = [], reminders = [], memory = [], notes = "";
@@ -966,7 +971,7 @@ export default function Ankora() {
     setTimer({ label: label || "", total: min*60, remaining: min*60, running: true, done: false });
     setMenuId(null); setTab("timer");
     // Schedule a server-side push as backup for when the app is backgrounded/closed
-    if (session && Notification.permission === "granted") {
+    if (session && safeNotifPermission() === "granted") {
       const sendAt = new Date(timerEndTimeRef.current).toISOString();
       fetch("/api/push-schedule", {
         method: "POST",
@@ -1071,8 +1076,8 @@ export default function Ankora() {
     const rid = "r" + Date.now();
     setReminders(prev => [{ id: rid, text, when: when.toISOString(), pushId: null, createdAt: new Date().toISOString(), done: false }, ...prev]);
     showToast("Reminder set");
-    if (Notification.permission !== "granted") await requestNotifPermission();
-    if (session && Notification.permission === "granted") {
+    if (safeNotifPermission() !== "granted") await requestNotifPermission();
+    if (session && safeNotifPermission() === "granted") {
       try {
         const res = await fetch("/api/push-schedule", {
           method: "POST",
