@@ -82,6 +82,10 @@ const STARTERS = [
   { icon: "🧠", label: "Brain dump", prompt: "I need to brain dump everything on my mind." },
   { icon: "🚧", label: "I'm stuck", prompt: "I've been staring at a task and can't start. Help." },
   { icon: "🌀", label: "I'm overwhelmed", prompt: "Everything feels urgent. I don't know where to begin." },
+  { icon: "🎯", label: "Plan my day", prompt: "Help me plan my day." },
+  { icon: "📋", label: "What's on my list?", prompt: "What's on my list right now?" },
+  { icon: "⏰", label: "Set a reminder", prompt: "I need to remember something later. Help me set a reminder." },
+  { icon: "⏱️", label: "Focus timer", prompt: "Help me focus. Start a timer for me." },
   { icon: "🌙", label: "Wind-down", prompt: "Help me wind down and close out the day." },
   { icon: "💭", label: "Help me figure this out", prompt: "I want to figure something out and could use your take. Let me explain what's going on." },
 ];
