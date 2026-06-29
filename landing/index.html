@@ -165,6 +165,7 @@
     .d-badge.step { background: #EDE9FE; color: #5B21B6; }
     .d-badge.rem { background: #ECFDF5; color: #047857; }
     .d-badge.grocery { background: #F0FDFA; color: #0F766E; }
+    .d-badge.timer { background: #FFF1E9; color: #B45129; }
     .d-chip-text { flex: 1; font-size: 12.5px; color: #111827; line-height: 1.35; }
     .d-go { font-size: 11.5px; font-weight: 600; color: #1D4ED8; background: #EFF6FF; border: 1.5px solid #BFDBFE; border-radius: 7px; padding: 5px 11px; white-space: nowrap; }
 
@@ -383,6 +384,32 @@
               <span class="tabs"><span class="on">Chat</span><span>Board</span></span>
             </div>
             <div class="screen-body">
+              <div class="d-row user"><div class="d-bubble user">I've cleaned my whole desk instead of doing the expense report. it's just so boring</div></div>
+              <div class="d-row ai"><div class="d-bubble ai">The boring one always loses to the easy one. Let's make it a 5-minute game: just today's receipts, nothing else, and I'll run the clock.</div></div>
+              <p class="d-confirm-head">Confirm? &middot; 2</p>
+              <div class="d-chip">
+                <span class="d-badge step">Start here</span>
+                <span class="d-chip-text">Enter just today's receipts, nothing else</span>
+                <span class="d-go">Confirm</span>
+              </div>
+              <div class="d-chip">
+                <span class="d-badge timer">Timer</span>
+                <span class="d-chip-text">5-minute focus race</span>
+                <span class="d-go">Confirm</span>
+              </div>
+            </div>
+          </div>
+          <p class="slide-cap">Make the boring task the easy one</p>
+        </div>
+
+        <div class="slide">
+          <div class="screen">
+            <div class="screen-bar">
+              <img src="apple-touch-icon.png" alt="Ankora" />
+              <span class="nm">Ankora</span>
+              <span class="tabs"><span class="on">Chat</span><span>Board</span></span>
+            </div>
+            <div class="screen-body">
               <div class="d-row user"><div class="d-bubble user">everything is due at once and I'm just frozen. I can't think</div></div>
               <div class="d-row ai"><div class="d-bubble ai">Breathe. We don't need the whole list right now, just the next move. What's the one thing most on fire?</div></div>
               <p class="d-confirm-head">Confirm? &middot; 1</p>
@@ -434,6 +461,7 @@
           <button class="dot active" data-i="0" aria-label="Example 1"></button>
           <button class="dot" data-i="1" aria-label="Example 2"></button>
           <button class="dot" data-i="2" aria-label="Example 3"></button>
+          <button class="dot" data-i="3" aria-label="Example 4"></button>
         </div>
         <button class="slider-arrow" data-dir="1" aria-label="Next example">&rsaquo;</button>
       </div>
