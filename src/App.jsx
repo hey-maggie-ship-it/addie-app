@@ -287,6 +287,7 @@ export default function Ankora() {
   const [pwMsg, setPwMsg] = useState("");
   const [subscription, setSubscription] = useState(null); // null=unknown, 'free', 'active'
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState("limit"); // "limit" | "resume" — drives the upgrade modal copy
   const [selectedPlan, setSelectedPlan] = useState("annual");   // which plan is highlighted in the upgrade modal
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [sessions, setSessions] = useState([]);
@@ -1827,11 +1828,11 @@ export default function Ankora() {
                   </span>
                 </div>
               ) : (
-                <div role="button" onClick={() => { setShowSettings(false); setShowUpgrade(true); }}
+                <div role="button" onClick={() => { setShowSettings(false); setUpgradeReason("limit"); setShowUpgrade(true); }}
                   style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderRadius:12, border:`1.5px solid ${C.borderLt}`, backgroundColor:C.bg2, cursor:"pointer" }}>
                   <div>
                     <p style={{ margin:"0 0 2px", fontSize:14, fontWeight:600, color:C.text }}>Free</p>
-                    <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>25 messages / day</p>
+                    <p style={{ margin:0, fontSize:12.5, color:C.text2 }}>10 messages / day</p>
                   </div>
                   <span style={{ fontSize:12.5, color:"#fff", fontWeight:700, backgroundColor:C.blue, borderRadius:8, padding:"7px 16px" }}>
                     Upgrade
@@ -1943,9 +1944,9 @@ export default function Ankora() {
               style={{ flexShrink:0, width:130, fontSize:12.5, padding:"7px 10px", borderRadius:9, border:`1.5px solid ${C.border}`, backgroundColor:C.bg2, color:C.text, outline:"none" }} />
           </div>
           <div style={{ padding:"10px 16px", borderBottom:`1.5px solid ${C.borderLt}`, flexShrink:0 }}>
-            <span role="button" onClick={() => resumeSession(viewingSession)}
+            <span role="button" onClick={() => subscription === "active" ? resumeSession(viewingSession) : (setUpgradeReason("resume"), setShowUpgrade(true))}
               style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:7, width:"100%", fontSize:14, fontWeight:700, color:C.blueText, backgroundColor:C.blueBg, border:`1.5px solid ${C.blueBorder}`, borderRadius:10, padding:"11px 0", cursor:"pointer" }}>
-              ↻ Resume this conversation
+              ↻ Resume this conversation{subscription !== "active" && <span style={{ fontSize:11.5, fontWeight:700, color:C.accentText }}>🔒 Pro</span>}
             </span>
           </div>
           <div style={{ flex:1, overflowY:"auto", padding:"14px 16px" }}>
@@ -2042,8 +2043,8 @@ export default function Ankora() {
             style={{ backgroundColor:C.bg, borderRadius:"20px 20px 0 0", padding:"28px 24px calc(28px + env(safe-area-inset-bottom))", width:"100%", maxWidth:520, boxShadow:"0 -4px 40px rgba(0,0,0,0.15)" }}>
             <div style={{ textAlign:"center", marginBottom:24 }}>
               <div style={{ fontSize:32, marginBottom:8 }}>✦</div>
-              <h2 style={{ margin:"0 0 6px", fontSize:21, fontWeight:700, color:C.text }}>You've hit today's limit</h2>
-              <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Upgrade to Ankora Pro for unlimited conversations and every new feature we ship.</p>
+              <h2 style={{ margin:"0 0 6px", fontSize:21, fontWeight:700, color:C.text }}>{upgradeReason === "resume" ? "Resume any past conversation" : "You've hit today's limit"}</h2>
+              <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>{upgradeReason === "resume" ? "Reopening and continuing past conversations is a Pro feature. Upgrade to pick up any session, anytime." : "Upgrade to Ankora Pro for unlimited conversations and every new feature we ship."}</p>
             </div>
 
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
@@ -2523,7 +2524,7 @@ export default function Ankora() {
           {subscription === "active"
             ? <span style={{ fontSize:12, fontWeight:700, color:C.accentText, backgroundColor:C.accentBg, borderRadius:20, padding:"2px 10px" }}>✦ Pro</span>
             : subscription === "free"
-              ? <span onClick={() => setShowUpgrade(true)} role="button" style={{ fontSize:12.5, color:C.accentText, cursor:"pointer", fontWeight:600 }}>Upgrade</span>
+              ? <span onClick={() => { setUpgradeReason("limit"); setShowUpgrade(true); }} role="button" style={{ fontSize:12.5, color:C.accentText, cursor:"pointer", fontWeight:600 }}>Upgrade</span>
               : null}
           <a href="/privacy.html" target="_blank" rel="noreferrer" style={{ fontSize:12.5, color:C.text2, textDecoration:"underline" }}>Privacy</a>
           <a href="/terms.html" target="_blank" rel="noreferrer" style={{ fontSize:12.5, color:C.text2, textDecoration:"underline" }}>Terms</a>

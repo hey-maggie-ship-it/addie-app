@@ -11,7 +11,7 @@
 //   ANTHROPIC_KEY              secret — never prefix with VITE_
 //   VITE_SUPABASE_URL          (also readable server-side) project URL
 //   VITE_SUPABASE_ANON_KEY     (also readable server-side) anon/public key
-//   FREE_DAILY_MESSAGE_LIMIT   optional, default 25
+//   FREE_DAILY_MESSAGE_LIMIT   optional, default 10
 // ──────────────────────────────────────────────────────────
 
 import { createClient } from "@supabase/supabase-js";
@@ -20,7 +20,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
 // Free-tier daily message cap (per user).
-const DAILY_LIMIT = parseInt(process.env.FREE_DAILY_MESSAGE_LIMIT || "25", 10);
+const DAILY_LIMIT = parseInt(process.env.FREE_DAILY_MESSAGE_LIMIT || "10", 10);
 // Reject a single oversized message (the real cost-abuse vector) — generous.
 const MAX_MESSAGE_CHARS = 16000;
 // Sanity ceiling for a runaway-long conversation; normal chats won't hit it.

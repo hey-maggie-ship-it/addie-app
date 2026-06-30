@@ -47,14 +47,14 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 >
 > So I built Ankora: an AI thinking partner that turns a pile of "everything" into one clear next step, then keeps you moving with reminders, focus timers, and a memory of how you work. The structure I used to get from a company, in your pocket.
 >
-> Free, 25 messages a day; Pro is $5/mo. If you've made the jump from a structured role to your own thing, what helped you bridge that gap?
+> Free, 10 messages a day; Pro is $5/mo. If you've made the jump from a structured role to your own thing, what helped you bridge that gap?
 
 **Gallery (≈5 images to make):**
 1. Hero: "Start the thing you've been avoiding"
 2. Slider example 1: Q3 brain-dump to first-step chips (strongest, lead with it)
 3. Slider example 2: boring task into a 5-minute game
 4. Slider example 3 or 4: regroup-when-frozen, or grocery + reminder capture
-5. Pricing: Free $0 (25/day) vs Pro $5/mo
+5. Pricing: Free $0 (10/day) vs Pro $5/mo
 
 **Topics:** Productivity, Artificial Intelligence, Mental Health (+ ADHD if available).
 **Timing:** PH days start 12:01am PT. Tue-Thu draws more traffic than weekends (note: planned July 3 is a Friday).
@@ -113,7 +113,7 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 > No setup, no empty boxes, nothing new to maintain.
 
 **6/**
-> Free to start, 25 messages a day. Pro is $5/mo. Any device, no app store → ankorahq.com
+> Free to start, 10 messages a day. Pro is $5/mo. Any device, no app store → ankorahq.com
 
 **7/**
 > If you've left a structured role to build your own thing, you might know this gap.
