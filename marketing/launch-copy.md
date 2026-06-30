@@ -185,6 +185,21 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 
 ---
 
+## Personal outreach (texts to send first)
+
+Warm, name-attached, soft asks with an easy out. Swap in names. Send these before the public posts.
+
+**1. Early testers (re-engage, including the quiet ones)**
+> Hey [name]! Remember that little AI app I had you try a while back? I finally got it to a place I'm genuinely proud of and I'm soft-launching it this week, now called Ankora (ankorahq.com). It helps turn a messy day into one clear next step. No pressure at all to use it, but if anyone in your world is buried in their to-do list or juggling a lot, I'd love if you passed it their way. Would mean a lot. 🙏
+
+*(For the unresponsive ones, trim to the first two sentences + "no worries if it's not your thing, just wanted you to see it.")*
+
+**2. Matthew (FCT founder, close)**
+> Hey Matthew! You know I've been itching to do my own thing, and after idea after idea, this is the one I landed on. I actually built it to get myself unstuck, then realized it might have a real market. It's called Ankora (ankorahq.com): an AI thinking partner that turns a messy day into one clear next step and keeps you moving. Would love your honest take, good or bad, you always gave it to me straight. And if anyone in your network is the type who'd find this useful, an intro would mean the world. Hope you and the family are doing great.
+
+**3. Friends who know of it but haven't seen it**
+> Hey [name]! Quick one: I've been building my own thing since moving to Okinawa, and I'm finally launching it this week. It's called Ankora (ankorahq.com), an AI that helps you actually start the stuff you keep putting off and stay on top of a busy life. I'd love for you to try it if it sounds useful, and if it's not for you but someone comes to mind, sending it their way would help more than you know. 💛
+
 ## Distribution checklist (GTM)
 
 - [ ] **Launch week:** Post LinkedIn (lead asset for professional network) + personal outreach list (20 people)
