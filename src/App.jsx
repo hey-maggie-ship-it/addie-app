@@ -1340,11 +1340,20 @@ export default function Ankora() {
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
       const { clean, suggestions } = parseSuggestions(raw);
       setMessages([...next, { role: "assistant", content: clean, id: "a"+Date.now() }]);
-      // Memories apply silently (no confirmation chip) — Ankora just remembers.
-      const remembers = suggestions.filter(s => s.type === "remember");
-      const chips = suggestions.filter(s => s.type !== "remember");
+      // Some suggestions apply silently, with no confirmation chip: durable memories,
+      // plus low-stakes captures (new grocery items + reminders) so Ankora saying
+      // "added it / I'll ping you" is literally true the moment she says it. Board
+      // tasks and calendar handoffs still wait for a Confirm tap — curating the board
+      // matters, and calendar opens an external app that needs a deliberate tap.
+      const AUTO_APPLY = new Set(["remember", "grocery", "reminder"]);
+      const autos = suggestions.filter(s => AUTO_APPLY.has(s.type));
+      const chips = suggestions.filter(s => !AUTO_APPLY.has(s.type));
       let saved = 0;
-      remembers.forEach(s => { if (addMemory(s.text)) saved++; });
+      autos.forEach(s => {
+        if (s.type === "remember") { if (addMemory(s.text)) saved++; return; }
+        if (actedSigsRef.current.has(suggestionSig(s))) return;  // don't re-add the same item across turns
+        confirm(s);   // apply grocery/reminder now (shows its own toast + marks it acted)
+      });
       if (saved > 0) showToast(saved > 1 ? `✓ Ankora will remember those` : `✓ Ankora will remember that`);
       // Keep any cards the user hasn't acted on yet (they may have navigated away)
       // and append this reply's new ones, skipping duplicates of what's already waiting.
