@@ -603,7 +603,7 @@ export default function Ankora() {
         // Normal case: cloud is the source of truth for this device.
         setTasks(cloudTasks);
         setGrocery(cloudGrocery);
-        if (cloudMessages.length > 0) setMessages(cloudMessages);
+        setMessages(cloudMessages);   // cloud is source of truth here; empty means empty (no stale-chat bleed)
         setSessions(cloudSessions);
         setReminders(cloudReminders);
         setMemory(cloudMemory);
@@ -785,12 +785,16 @@ export default function Ankora() {
   };
 
   const signOut = async () => {
+    saveToCloud();                 // flush the latest state while we're still authenticated
     await supabase.auth.signOut();
     setSession(null);
     setCloudLoaded(false);
     setSubscription(null);
     setTasks([]); setGrocery([]); setProfile(null);
-    setStarted(false); setPending([]); setAuthSent(false); setAuthEmail(""); setOtpCode("");
+    // Clear the chat too, so a stale conversation can't bleed into the next sign-in
+    // and masquerade as "Continue where you left off". Everything reloads from cloud.
+    setMessages([]); setSessions([]); setStarted(false); setPastExpanded(false); setPending([]);
+    setAuthSent(false); setAuthEmail(""); setOtpCode("");
     setAuthMode("code"); setAuthPassword(""); actedSigsRef.current = new Set();
   };
 
