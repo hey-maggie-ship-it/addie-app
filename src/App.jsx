@@ -160,6 +160,10 @@ function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", cal
   const done   = tasks.filter(t => t.done && t.completedAt && fmtISO(new Date(t.completedAt)) === todayStr);
   const gItems = grocery.filter(g => !g.checked);
   const withNext = tasks.filter(t => t.nextStep && !t.done);
+  // Task ids embed their creation time ("t"+Date.now()), so we can surface how long
+  // something has sat without a migration. Tag anything sitting a week or more so
+  // Ankora can resurface it and ask if it's still worth keeping.
+  const ageTag = (t) => { const ms = parseInt(String(t.id).replace(/^\D+/, ""), 10); if (isNaN(ms)) return ""; const d = Math.floor((now - ms) / 864e5); return d >= 7 ? ` [sitting ${d}d]` : ""; };
   const memList = (memory || []).filter(m => m && m.text);
   const memoryBlock = memList.length
     ? `\n\nWHAT YOU'VE LEARNED ABOUT THIS USER (durable memory carried across every session — use it to personalize naturally; do NOT recite it back like a list or announce that you remember):\n${memList.map(m => `- ${m.text}`).join("\n")}`
@@ -187,9 +191,9 @@ LIVE DATE & TIME: You know the current local date AND clock time (stated at the 
 NEVER guess external facts you don't know — store hours, prices, someone else's appointment time, a venue's address. (This is different from the current clock time and relative dates, which you DO know and CAN compute from the values stated above.) "Memorial Day" is the last Monday of May; "July 4th" is July 4th; never substitute one for another. If an external fact isn't stated and you can't derive it, ask rather than fabricate.
 
 CURRENT TASK MEMORY:
-Today (max 3): ${today.length ? today.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}`).join(", ") : "empty"}
-This week: ${week.length ? week.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}`).join(", ") : "empty"}
-Parked: ${parked.length ? parked.map(t=>`"${t.text}" [id:${t.id}]`).join(", ") : "empty"}
+Today (max 3): ${today.length ? today.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}${ageTag(t)}`).join(", ") : "empty"}
+This week: ${week.length ? week.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}${ageTag(t)}`).join(", ") : "empty"}
+Parked: ${parked.length ? parked.map(t=>`"${t.text}" [id:${t.id}]${ageTag(t)}`).join(", ") : "empty"}
 Done today: ${done.length ? done.map(t=>`"${t.text}"`).join(", ") : "none"}
 
 TASKS WITH PENDING NEXT STEPS:
@@ -218,6 +222,10 @@ UPDATING vs CREATING: When the user wants to CHANGE something already on the boa
 
 OFFER YOUR TOOLS PROACTIVELY: Most people don't know everything you can do, so surface it in the moment instead of waiting to be asked. When a specific date or event comes up, offer to add it to their calendar. When something time-bound could slip, offer a reminder. When they're stuck starting, offer a focus timer. When a list is forming, offer to hold it. Mention the relevant one ONCE, naturally, as an easy option ("want me to put that on your calendar?"), never as a pushy pitch, then move on. This is how they discover you can hold their calendar, reminders, timers, lists, and what matters to them.
 
+RESURFACING STALE TASKS: A task tagged [sitting Nd] has been on the board that many days without getting done. When the moment fits (a check-in, planning, or a natural lull, never mid-crisis), gently resurface ONE stale task and ask if it's still relevant and worth keeping. If they say it's already done, use type:complete. If it no longer matters, offer to clear it with type:delete. If it matters but not now, offer type:move to park it. Raise one at a time, never dump the whole stale list, and never nag.
+
+SAYING WHAT YOU DID (be accurate): Grocery items and reminders you emit take effect immediately, so it is true to say "added that to your list" or "I'll ping you then." But board tasks and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's on your board," "confirm below and it goes on your calendar." Never say a task is added or an event is scheduled while it's still a pending card.
+
 SUGGESTION FORMAT:
 
 SUGGESTIONS:
@@ -234,12 +242,13 @@ SUGGESTIONS:
 - type:nextstep | id:TASK_ID | "next step text"
 - type:move | id:TASK_ID | bucket:today
 - type:complete | id:TASK_ID
+- type:delete | id:TASK_ID
 - type:calendar | "event title" | when:"YYYY-MM-DDTHH:MM" | minutes:60
 - type:reminder | "what to remind them about" | when:"YYYY-MM-DDTHH:MM"
 - type:timer | minutes:15 | label:"what the timer is for"
 - type:remember | "one short durable fact about the user"
 
-Rules: Before emitting any suggestion, CHECK CURRENT TASK MEMORY, GROCERY, and Done today above. Never re-suggest adding a task or grocery item that's already listed there, and never suggest type:complete for something already in Done today — those actions are already taken. When the user is picking a conversation back up later, assume the suggestions you offered earlier were acted on; don't re-offer the same add/complete/reminder again unless they ask. Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
+Rules: Before emitting any suggestion, CHECK CURRENT TASK MEMORY, GROCERY, and Done today above. Never re-suggest adding a task or grocery item that's already listed there, and never suggest type:complete for something already in Done today — those actions are already taken. When the user is picking a conversation back up later, assume the suggestions you offered earlier were acted on; don't re-offer the same add/complete/reminder/calendar event again unless they ask. NEVER re-emit a type:calendar for an event you already offered in this conversation, even if the topic comes up again. Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add.
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
@@ -329,6 +338,13 @@ export default function Ankora() {
   // in the current conversation, so the model re-suggesting the same thing won't
   // make a handled card pop back up. Reset when the conversation resets.
   const actedSigsRef = useRef(new Set());
+  // Calendar events are a handoff to the OS calendar with no stored record, so the
+  // model tends to re-suggest one it already offered. This DURABLE set (persisted to
+  // this device) remembers events already added so their cards don't reappear across
+  // turns or sessions. Device-local, like the calendar-app choice.
+  const calAddedRef = useRef((() => { try { return new Set(JSON.parse(window.localStorage.getItem("addie-cal-added") || "[]")); } catch { return new Set(); } })());
+  const calSig = (s) => `${String(s.title||"").trim().toLowerCase()}|${String(s.when||"").slice(0,16)}`;
+  const rememberCalAdded = (s) => { calAddedRef.current.add(calSig(s)); try { window.localStorage.setItem("addie-cal-added", JSON.stringify([...calAddedRef.current].slice(-100))); } catch {} };
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
   // JSON of the last data we synced (saved or received), to dedupe + ignore echoes.
@@ -1237,6 +1253,8 @@ export default function Ankora() {
       if (rem) return { id: "s"+Date.now()+i, type: "reminder", text: rem[1], when: rem[2] };
       const comp = l.match(/- type:complete \| id:(\S+)/);
       if (comp) return { id: "s"+Date.now()+i, type: "complete", targetId: comp[1] };
+      const del = l.match(/- type:delete \| id:(\S+)/);
+      if (del) return { id: "s"+Date.now()+i, type: "delete", targetId: del[1] };
       const grm = l.match(/- type:grocery-remove \| id:(\S+)/);
       if (grm) return { id: "s"+Date.now()+i, type: "grocery-remove", targetId: grm[1] };
       const grs = l.match(/- type:grocery-replace \| id:(\S+) \| "(.+)" \| store:"(.+)"/);
@@ -1370,6 +1388,7 @@ export default function Ankora() {
         // confirmed/skipped this conversation (model sometimes re-suggests done work).
         return [...prev, ...chips.filter(c => {
           const sg = suggestionSig(c);
+          if (c.type === "calendar" && calAddedRef.current.has(calSig(c))) return false;  // already added on this device
           return !seen.has(sg) && !actedSigsRef.current.has(sg);
         })];
       });
@@ -1396,6 +1415,11 @@ export default function Ankora() {
       setTasks(p => p.map(t => t.id===s.targetId ? {...t, done:true, completedAt:new Date().toISOString()} : t));
       showToast(`✓  ${t?.text || "Done"}`);
     }
+    else if (s.type === "delete") {
+      const t = tasks.find(t => t.id === s.targetId);
+      setTasks(p => p.filter(t => t.id !== s.targetId));
+      showToast(`Removed: ${t?.text || "task"}`);
+    }
     else if (s.type === "move") {
       const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length;
       const b = s.bucket==="today" && n>=MAX_TODAY ? "week" : s.bucket;
@@ -1409,6 +1433,7 @@ export default function Ankora() {
       const hadChoice = !!calendarApp;
       const ok = addToCalendar(s.title, s.when, s.minutes);
       if (hadChoice) showToast(ok ? "Opening your calendar…" : "Couldn't open calendar");
+      rememberCalAdded(s);   // don't let this event's card come back on a later turn
     }
     else if (s.type === "reminder") { scheduleReminder(s.text, s.when); }
     else if (s.type === "remember") { addMemory(s.text); }
@@ -2345,8 +2370,9 @@ export default function Ankora() {
                               : s.type==="reminder" ? {bg:"#EDE9FE",text:"#5B21B6",label:"Reminder"}
                               : s.type==="timer" ? {bg:C.blueBg,text:C.blueText,label:"Timer"}
                               : s.type==="move" ? {bg:C.blueBg,text:C.blueText,label:"Move"}
+                              : s.type==="delete" ? {bg:C.dangerBg,text:C.danger,label:"Remove"}
                               : BUCKET_STYLE[s.bucket];
-                    const taskRef = s.type==="complete" ? tasks.find(t=>t.id===s.targetId)?.text : null;
+                    const taskRef = (s.type==="complete" || s.type==="delete") ? tasks.find(t=>t.id===s.targetId)?.text : null;
                     const moveRef = s.type==="move" ? tasks.find(t=>t.id===s.targetId)?.text : null;
                     const removeRef = s.type==="grocery-remove" ? grocery.find(g=>g.id===s.targetId)?.text : null;
                     const display = s.type==="calendar" ? `${s.title} · ${fmtCalDate(s.when)}`
@@ -2354,7 +2380,7 @@ export default function Ankora() {
                                     : s.type==="timer" ? `${s.minutes} min${s.label?` · ${s.label}`:""}`
                                     : s.type==="move" ? `${moveRef || "Task"} → ${BUCKET_STYLE[s.bucket]?.label || s.bucket}`
                                     : (taskRef || removeRef || s.text);
-                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="reminder" ? "Set reminder" : s.type==="timer" ? "Start" : s.type==="grocery-remove" ? "Remove" : s.type==="move" ? "Move" : "Confirm";
+                    const ctaLabel = s.type==="calendar" ? "Add to calendar" : s.type==="reminder" ? "Set reminder" : s.type==="timer" ? "Start" : s.type==="grocery-remove" ? "Remove" : s.type==="delete" ? "Remove" : s.type==="move" ? "Move" : "Confirm";
                     return (
                       <div key={s.id} style={{ display:"flex", alignItems:"center", gap:10, backgroundColor:C.bg, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"10px 14px" }}>
                         <Badge bg={bs.bg} color={bs.text}>{bs.label}</Badge>
