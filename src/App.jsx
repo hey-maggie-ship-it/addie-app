@@ -343,7 +343,11 @@ export default function Ankora() {
   // this device) remembers events already added so their cards don't reappear across
   // turns or sessions. Device-local, like the calendar-app choice.
   const calAddedRef = useRef((() => { try { return new Set(JSON.parse(window.localStorage.getItem("addie-cal-added") || "[]")); } catch { return new Set(); } })());
-  const calSig = (s) => `${String(s.title||"").trim().toLowerCase()}|${String(s.when||"").slice(0,16)}`;
+  // Key on the event TITLE only (not the date): the model re-suggests the same
+  // event with drifting dates across turns, so title-based dedupe is what actually
+  // stops the duplicate cards. One-off events with identical titles are rare enough
+  // that suppressing a repeat is the right call.
+  const calSig = (s) => String(s.title||"").trim().toLowerCase();
   const rememberCalAdded = (s) => { calAddedRef.current.add(calSig(s)); try { window.localStorage.setItem("addie-cal-added", JSON.stringify([...calAddedRef.current].slice(-100))); } catch {} };
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
@@ -1384,11 +1388,18 @@ export default function Ankora() {
       // and append this reply's new ones, skipping duplicates of what's already waiting.
       if (chips.length) setPending(prev => {
         const seen = new Set(prev.map(suggestionSig));
+        // Calendar events dedupe by title (the model re-emits them with drifting
+        // dates), so track which event titles are already waiting or added.
+        const calTitles = new Set(prev.filter(p => p.type==="calendar").map(calSig));
         // Skip duplicates of what's already waiting AND anything the user already
         // confirmed/skipped this conversation (model sometimes re-suggests done work).
         return [...prev, ...chips.filter(c => {
           const sg = suggestionSig(c);
-          if (c.type === "calendar" && calAddedRef.current.has(calSig(c))) return false;  // already added on this device
+          if (c.type === "calendar") {
+            const cs = calSig(c);
+            if (calAddedRef.current.has(cs) || calTitles.has(cs)) return false;  // already added, or same event already waiting
+            calTitles.add(cs);   // and dedupe repeats within this same batch
+          }
           return !seen.has(sg) && !actedSigsRef.current.has(sg);
         })];
       });
