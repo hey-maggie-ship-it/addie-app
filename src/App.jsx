@@ -1427,7 +1427,7 @@ export default function Ankora() {
   const deleteGrocery = (id) => setGrocery(p => p.filter(g => g.id!==id));
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
   const doClearAll = () => {
-    setClearBackup({ tasks, grocery, memory, notes });   // snapshot board + grocery + memory + notes so the user can undo
+    setClearBackup({ tasks, grocery, messages, sessions, reminders, memory, notes });   // snapshot everything so Undo fully restores
     setTasks([]); setGrocery([]); setMessages([]); setSessions([]); setReminders([]); setMemory([]); setNotes(""); setStarted(false); setPastExpanded(false); setPending([]); actedSigsRef.current = new Set();
     try{window.localStorage.removeItem(STORAGE_KEY);}catch{}
     setShowClearConfirm(false); setShowSettings(false);
@@ -1436,8 +1436,9 @@ export default function Ankora() {
   const undoClear = () => {
     if (!clearBackup) return;
     setTasks(clearBackup.tasks || []); setGrocery(clearBackup.grocery || []); setMemory(clearBackup.memory || []); setNotes(clearBackup.notes || "");
+    setMessages(clearBackup.messages || []); setSessions(clearBackup.sessions || []); setReminders(clearBackup.reminders || []);
     setClearBackup(null);
-    showToast("Board & grocery restored");
+    showToast("Everything restored");
   };
 
   // ── Onboarding / profile ──
@@ -2058,7 +2059,7 @@ export default function Ankora() {
               This deletes your <strong>board tasks</strong>, <strong>grocery list</strong>, and <strong>all chats</strong> (current and past sessions) from this device and your account.
             </p>
             <p style={{ margin:"0 0 18px", fontSize:12.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>
-              You can undo the board &amp; grocery right after — but chat history can't be recovered.
+              You can undo this right after (everything comes back, including your chats).
             </p>
             <div style={{ display:"flex", gap:10 }}>
               <span role="button" onClick={() => setShowClearConfirm(false)}
@@ -2199,7 +2200,7 @@ export default function Ankora() {
 
       {clearBackup && (
         <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 18px", backgroundColor:"#FEF3C7", borderBottom:`1px solid #FDE68A`, flexShrink:0 }}>
-          <span style={{ flex:1, fontSize:12.5, color:"#92400E" }}>Board &amp; grocery cleared.</span>
+          <span style={{ flex:1, fontSize:12.5, color:"#92400E" }}>Data cleared, including chats.</span>
           <span role="button" onClick={undoClear} style={{ fontSize:12.5, fontWeight:700, color:C.blueText, cursor:"pointer" }}>Undo</span>
           <span role="button" onClick={() => setClearBackup(null)} style={{ fontSize:14, color:"#92400E", cursor:"pointer", lineHeight:1 }}>✕</span>
         </div>
