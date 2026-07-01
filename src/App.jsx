@@ -123,7 +123,9 @@ const C = {
 function buildProfileBlock(profile) {
   if (!profile) return "";
   const parts = [];
-  if (profile.style)   parts.push(`- Prefers: ${profile.style === "direct" ? "directness — cut to the chase, lead with the answer, keep preamble short" : "thinking it through — talk things out before landing on a decision"}`);
+  if (profile.style)   parts.push(profile.style === "direct"
+    ? `- Wants you SURGICAL: lead with the reframe or the next move in 1-3 short sentences. Skip the validation and the "why this is hard" explainer, they slow this person down. Bold the one action and get them moving.`
+    : `- Wants you to give them ROOM: let them get it all out before you rush to fix anything. Reflect back what you heard and validate it first, then land on the next step gently, not abruptly. A little more warmth and space is right for this person; never make them feel judged for how much is on their plate.`);
   if (profile.pattern) {
     const map = {
       starting:  "getting started — the hardest part for them is beginning. Offer the smallest possible first step and time-boxing.",
@@ -212,6 +214,8 @@ REMEMBERING THE USER: You build a lasting understanding of this person across se
 
 UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it, retime it, narrow or expand its scope ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'," "actually that task is about the Q3 deck not Q2") — EDIT the existing item in place by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. type:replace can also update the next step via next:"…". Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. You CAN edit a task — never tell the user to delete it and add a new one, and never delete-then-recreate it yourself; that loses its history and makes them do extra work. Editing is always one type:replace. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item.
 
+OFFER YOUR TOOLS PROACTIVELY: Most people don't know everything you can do, so surface it in the moment instead of waiting to be asked. When a specific date or event comes up, offer to add it to their calendar. When something time-bound could slip, offer a reminder. When they're stuck starting, offer a focus timer. When a list is forming, offer to hold it. Mention the relevant one ONCE, naturally, as an easy option ("want me to put that on your calendar?"), never as a pushy pitch, then move on. This is how they discover you can hold their calendar, reminders, timers, lists, and what matters to them.
+
 SUGGESTION FORMAT:
 
 SUGGESTIONS:
@@ -237,7 +241,7 @@ Rules: Before emitting any suggestion, CHECK CURRENT TASK MEMORY, GROCERY, and D
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
-STYLE: Warm, direct, short paragraphs. Bold one key action with **bold**. No "just do X." No shame. Acknowledge wins. Smallest physical first step when stuck.`;
+STYLE: Warm, never clinical. Short paragraphs, and bold the one key action with **bold**. No "just do X." No shame, ever. Acknowledge wins. Always end pointed at the smallest physical first step. HOW MUCH you say and how much you validate before problem-solving is set by the USER PROFILE above: surgical and brief for some, more room and warmth for others. With no profile yet, stay warm but concise.`;
 }
 
 export default function Ankora() {
@@ -287,6 +291,7 @@ export default function Ankora() {
   const [pwMsg, setPwMsg] = useState("");
   const [subscription, setSubscription] = useState(null); // null=unknown, 'free', 'active'
   const [showUpgrade, setShowUpgrade] = useState(false);
+  const [capIntroSeen, setCapIntroSeen] = useState(() => { try { return localStorage.getItem("addie-cap-intro-seen") === "1"; } catch { return true; } });
   const [upgradeReason, setUpgradeReason] = useState("limit"); // "limit" | "resume" — drives the upgrade modal copy
   const [selectedPlan, setSelectedPlan] = useState("annual");   // which plan is highlighted in the upgrade modal
   const [upgradeBusy, setUpgradeBusy] = useState(false);
@@ -2226,6 +2231,18 @@ export default function Ankora() {
                   <h3 style={{ margin:"0 0 4px", fontSize:24, fontWeight:700, color:C.text }}>Hey, how's it going?</h3>
                   <p style={{ margin:0, fontSize:14, color:C.text2 }}>{((messages.length > 0 && !pastExpanded) || sessions.length > 0) ? "Pick up where you left off, or start something new below." : "Pick a starting point, or just tell me what's up."}</p>
                 </div>
+                {/* First-run: introduce what Ankora can do, so features aren't missed. Shown once. */}
+                {onboarded && !capIntroSeen && (
+                  <div style={{ marginBottom:20, padding:"14px 16px", backgroundColor:C.indigoBg, border:`1.5px solid ${C.blueBorder}`, borderRadius:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:6 }}>
+                      <p style={{ margin:0, fontSize:14, fontWeight:700, color:C.text }}>A few things I can do for you</p>
+                      <span role="button" onClick={() => { try { localStorage.setItem("addie-cap-intro-seen","1"); } catch {} setCapIntroSeen(true); }}
+                        style={{ flexShrink:0, fontSize:12.5, fontWeight:700, color:C.text3, cursor:"pointer" }}>Got it</span>
+                    </div>
+                    <p style={{ margin:0, fontSize:13, color:C.text2, lineHeight:1.5 }}>Break big things into steps, run a focus timer, set reminders, add events to your calendar, keep a grocery list, and remember what matters to you. Just tell me what's going on and I'll offer the right one.</p>
+                  </div>
+                )}
+
                 {/* 1. Continue where you left off — active chat, else the most-recent archived session */}
                 {(hasActiveConvo || continueSess) && (
                   <div role="button"

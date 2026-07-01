@@ -168,6 +168,7 @@
     .d-badge.timer { background: #FFF1E9; color: #B45129; }
     .d-chip-text { flex: 1; font-size: 12.5px; color: #111827; line-height: 1.35; }
     .d-go { font-size: 11.5px; font-weight: 600; color: #1D4ED8; background: #EFF6FF; border: 1.5px solid #BFDBFE; border-radius: 7px; padding: 5px 11px; white-space: nowrap; }
+    .d-go.done { color: #047857; background: #ECFDF5; border-color: #A7F3D0; }
 
     /* DEMO SLIDER */
     .demo-stage { width: 100%; max-width: 380px; margin: 0 auto; }
@@ -433,21 +434,21 @@
             <div class="screen-body">
               <div class="d-row user"><div class="d-bubble user">out of coffee and oat milk. also remind me to call the dentist tomorrow at 10</div></div>
               <div class="d-row ai"><div class="d-bubble ai">Done. Added to your list and I'll ping you tomorrow. Anything else on your mind?</div></div>
-              <p class="d-confirm-head">Confirm? &middot; 3</p>
+              <p class="d-confirm-head">Added to your lists &middot; 3</p>
               <div class="d-chip">
                 <span class="d-badge grocery">Grocery</span>
                 <span class="d-chip-text">Coffee</span>
-                <span class="d-go">Confirm</span>
+                <span class="d-go done">&check; Added</span>
               </div>
               <div class="d-chip">
                 <span class="d-badge grocery">Grocery</span>
                 <span class="d-chip-text">Oat milk</span>
-                <span class="d-go">Confirm</span>
+                <span class="d-go done">&check; Added</span>
               </div>
               <div class="d-chip">
                 <span class="d-badge rem">Reminder</span>
                 <span class="d-chip-text">Call the dentist, tomorrow 10:00 AM</span>
-                <span class="d-go">Confirm</span>
+                <span class="d-go done">&check; Set</span>
               </div>
             </div>
           </div>
