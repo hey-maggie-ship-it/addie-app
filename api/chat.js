@@ -57,7 +57,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { system, messages } = req.body || {};
+    const { system, messages, timeZone } = req.body || {};
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: "No messages provided." });
@@ -92,6 +92,7 @@ export default async function handler(req, res) {
     if (!isSubscribed) {
       const { data: usage, error: usageError } = await supabase.rpc("record_message", {
         daily_limit: DAILY_LIMIT,
+        client_tz: typeof timeZone === "string" && timeZone ? timeZone : "UTC",
       });
       if (usageError) {
         console.error("Usage metering unavailable (failing open):", usageError.message);

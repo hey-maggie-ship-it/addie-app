@@ -290,6 +290,7 @@ export default function Ankora() {
   const [upgradeReason, setUpgradeReason] = useState("limit"); // "limit" | "resume" — drives the upgrade modal copy
   const [selectedPlan, setSelectedPlan] = useState("annual");   // which plan is highlighted in the upgrade modal
   const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const paymentReturnRef = useRef(false);                  // set when we land back from Stripe Checkout (?payment=success)
   const [sessions, setSessions] = useState([]);
   const [reminders, setReminders] = useState([]);          // chat-scheduled push reminders
   const [remindersExpanded, setRemindersExpanded] = useState(true);
@@ -456,6 +457,8 @@ export default function Ankora() {
     // Handle return from Stripe Checkout
     const params = new URLSearchParams(window.location.search);
     if (params.get("payment") === "success" || params.get("payment") === "canceled") {
+      if (params.get("payment") === "success") paymentReturnRef.current = true;
+      setUpgradeBusy(false);   // the "Redirecting…" state is stale now that we're back
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
@@ -471,6 +474,42 @@ export default function Ankora() {
   useEffect(() => {
     if (session?.user?.id && notifPermission === "granted") subscribeToPush();
   }, [session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After returning from Stripe Checkout, the subscriptions row is written by the
+  // webhook, which can lag a few seconds. Poll until it flips to active so the
+  // upgrade cards disappear and chat sees Pro without needing an app restart.
+  useEffect(() => {
+    if (!paymentReturnRef.current || !session?.user?.id) return;
+    paymentReturnRef.current = false;
+    let cancelled = false;
+    let tries = 0;
+    const poll = async () => {
+      tries++;
+      const status = await refreshSubscription();
+      if (cancelled) return;
+      if (status === "active") { showToast("You're Pro now. Enjoy unlimited chats ✨"); return; }
+      if (tries < 6) setTimeout(poll, 1500);
+    };
+    poll();
+    return () => { cancelled = true; };
+  }, [session?.user?.id, cloudLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the app regains focus (tab switch, bfcache restore after a Stripe bounce,
+  // or returning from OS settings), re-sync state that may have changed while away:
+  //  - notification permission can be toggled in system settings behind our back
+  //  - the checkout "Redirecting…" state can get frozen by bfcache
+  useEffect(() => {
+    const resync = () => { setNotifPermission(safeNotifPermission()); setUpgradeBusy(false); };
+    const onVis = () => { if (!document.hidden) resync(); };
+    window.addEventListener("pageshow", resync);
+    window.addEventListener("focus", resync);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pageshow", resync);
+      window.removeEventListener("focus", resync);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -753,6 +792,15 @@ export default function Ankora() {
     setTasks([]); setGrocery([]); setProfile(null);
     setStarted(false); setPending([]); setAuthSent(false); setAuthEmail(""); setOtpCode("");
     setAuthMode("code"); setAuthPassword(""); actedSigsRef.current = new Set();
+  };
+
+  // Re-read the user's subscription status from Supabase (written by the Stripe
+  // webhook). Returns the status string so callers can poll for it to flip.
+  const refreshSubscription = async () => {
+    if (!session?.user?.id) return null;
+    const { data } = await supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle();
+    if (data) setSubscription(data.status === "active" ? "active" : "free");
+    return data?.status || null;
   };
 
   const startCheckout = async (priceId) => {
@@ -1272,7 +1320,7 @@ export default function Ankora() {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile, memory, notes, calEvents), messages: next.map(m => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile, memory, notes, calEvents), messages: next.map(m => ({ role: m.role, content: m.content })), timeZone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })() }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -1376,7 +1424,7 @@ export default function Ankora() {
   const clearChecked = () => setGrocery(p => p.filter(g => !g.checked));
   const doClearAll = () => {
     setClearBackup({ tasks, grocery, memory, notes });   // snapshot board + grocery + memory + notes so the user can undo
-    setTasks([]); setGrocery([]); setMessages([]); setReminders([]); setMemory([]); setNotes(""); setStarted(false); setPending([]); actedSigsRef.current = new Set();
+    setTasks([]); setGrocery([]); setMessages([]); setSessions([]); setReminders([]); setMemory([]); setNotes(""); setStarted(false); setPastExpanded(false); setPending([]); actedSigsRef.current = new Set();
     try{window.localStorage.removeItem(STORAGE_KEY);}catch{}
     setShowClearConfirm(false); setShowSettings(false);
     showToast("Data cleared");
@@ -1515,13 +1563,13 @@ export default function Ankora() {
               { label:"Edit", fn:() => startEdit(task) },
               { label:"Start 15-min timer", fn:() => startTimer(15, task.text) },
               { label:"Start 25-min timer", fn:() => startTimer(25, task.text) },
-              ...(task.bucket!=="today" && todayTasks.length<MAX_TODAY ? [{ label:"Move to Today", fn:() => moveTask(task.id,"today") }] : []),
+              ...(task.bucket!=="today" ? [{ label: todayTasks.length<MAX_TODAY ? "Move to Today" : "Move to Today (full)", fn:() => moveTask(task.id,"today"), disabled: todayTasks.length>=MAX_TODAY }] : []),
               ...(task.bucket!=="week"   ? [{ label:"Move to This week", fn:() => moveTask(task.id,"week") }] : []),
               ...(task.bucket!=="parked" ? [{ label:"Park it", fn:() => moveTask(task.id,"parked") }] : []),
               { label:"Delete", fn:() => deleteTask(task.id), danger:true },
             ].map((it,i) => (
-              <div key={i} onClick={it.fn} role="button"
-                style={{ padding:"12px 16px", borderBottom:`1px solid ${C.borderLt}`, cursor:"pointer", fontSize:14, color:it.danger?C.danger:C.text, fontWeight:it.danger?500:400 }}>{it.label}</div>
+              <div key={i} onClick={it.disabled ? undefined : it.fn} role="button"
+                style={{ padding:"12px 16px", borderBottom:`1px solid ${C.borderLt}`, cursor:it.disabled?"default":"pointer", fontSize:14, color:it.disabled?C.text3:(it.danger?C.danger:C.text), fontWeight:it.danger?500:400, opacity:it.disabled?0.55:1 }}>{it.label}</div>
             ))}
           </div>
         )}
@@ -2003,7 +2051,7 @@ export default function Ankora() {
             <div style={{ fontSize:30, textAlign:"center", marginBottom:10 }}>⚠️</div>
             <h2 style={{ margin:"0 0 10px", fontSize:18, fontWeight:700, color:C.text, textAlign:"center" }}>Clear all data?</h2>
             <p style={{ margin:"0 0 8px", fontSize:13.5, color:C.text2, lineHeight:1.55, textAlign:"center" }}>
-              This deletes your <strong>board tasks</strong>, <strong>grocery list</strong>, and <strong>current chat</strong> from this device and your account.
+              This deletes your <strong>board tasks</strong>, <strong>grocery list</strong>, and <strong>all chats</strong> (current and past sessions) from this device and your account.
             </p>
             <p style={{ margin:"0 0 18px", fontSize:12.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>
               You can undo the board &amp; grocery right after — but chat history can't be recovered.
@@ -2222,7 +2270,7 @@ export default function Ankora() {
               return (
                 <div key={m.id} style={{ display:"flex", flexDirection:"column", alignItems:u?"flex-end":"flex-start", marginTop:grp?3:12 }}>
                   <div style={{ maxWidth:"76%", backgroundColor:u?C.bubble:"#E9E9EB", color:u?"#fff":"#000", borderRadius:18, padding:"9px 14px", fontSize:14.5, lineHeight:1.5 }}>{renderContent(m.content)}</div>
-                  {m.upgrade && (
+                  {m.upgrade && subscription !== "active" && (
                     <div style={{ maxWidth:"88%", width:"100%", marginTop:8, borderRadius:14, border:`1.5px solid ${C.blueBorder}`, backgroundColor:C.blueBg, padding:"14px 16px" }}>
                       <p style={{ margin:"0 0 10px", fontSize:13.5, fontWeight:600, color:C.blueText }}>Upgrade to Ankora Pro for unlimited</p>
                       <div style={{ display:"flex", gap:8 }}>
