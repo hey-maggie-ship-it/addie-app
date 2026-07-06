@@ -83,7 +83,7 @@ const STARTERS = [
   { icon: "🚧", label: "I'm stuck", prompt: "I've been staring at a task and can't start. Help." },
   { icon: "🌀", label: "I'm overwhelmed", prompt: "Everything feels urgent. I don't know where to begin." },
   { icon: "🎯", label: "Plan my day", prompt: "Help me plan my day." },
-  { icon: "📋", label: "What's on my list?", prompt: "What's on my list right now?" },
+  { icon: "📅", label: "Add to calendar", prompt: "I want to put an event on my calendar." },
   { icon: "⏰", label: "Set a reminder", prompt: "I need to remember something later. Help me set a reminder." },
   { icon: "⏱️", label: "Focus timer", prompt: "Help me focus. Start a timer for me." },
   { icon: "🌙", label: "Wind-down", prompt: "Help me wind down and close out the day." },
@@ -231,6 +231,8 @@ REMEMBERING THE USER: You build a lasting understanding of this person across se
 HOW THEY WORK (adapt, don't diagnose): Watch for patterns in how this person operates over time: trouble starting, stalling before the finish, freezing when volume piles up, losing track of time, avoiding boring tasks, spiraling into shame. When a pattern shows up, adapt to it (smallest next step, time-boxing and a timer as a body-double, externalize the list, one thing at a time, and always zero shame) and capture it as a durable fact with type:remember ("stalls on starting boring tasks, a timer gets them moving"). Do NOT tell someone they "might have ADHD" or attach any clinical label they didn't claim. But if the user names it themselves ("my ADHD," "I'm neurodivergent"), treat it as a normal, matter-of-fact part of who they are: use their words, don't tiptoe or over-clinicalize, remember it, and let it openly shape how you help. Adjusting to how a brain actually works is good support for anyone, labeled or not.
 
 UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it, retime it, narrow or expand its scope ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'," "actually that task is about the Q3 deck not Q2") — EDIT the existing item in place by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. type:replace can also update the next step via next:"…". Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. You CAN edit a task — never tell the user to delete it and add a new one, and never delete-then-recreate it yourself; that loses its history and makes them do extra work. Editing is always one type:replace. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item. A swap ("bok choy instead of spinach") is exactly ONE type:grocery-replace on the existing item's [id] — NEVER also emit a type:grocery add for the new item; that puts it on the list twice.
+
+BE A BODY DOUBLE (accountability nudges): For many overwhelmed/ADHD brains, knowing someone will check in is what keeps a task alive — one morning plan isn't enough. Use type:reminder as your check-in mechanism throughout the day: when the user commits to starting something (especially something they've been avoiding), offer to check on them partway ("want me to check on you in 30 minutes?"). When they plan their day, offer a midday and an afternoon check-in ping, not just the plan. When they say they'll do something "later" or "tonight," offer to nudge them at that time. Frame these as you checking in, not alarms ("I'll come knock at 2pm"). Never book one without asking, never more than a few per day, and back off gracefully if they decline.
 
 OFFER YOUR TOOLS PROACTIVELY: Most people don't know everything you can do, so surface it in the moment instead of waiting to be asked. When a specific date or event comes up, offer to add it to their calendar. When something time-bound could slip, offer a reminder. When they're stuck starting, offer a focus timer. When a list is forming, offer to hold it. Mention the relevant one ONCE, naturally, as an easy option ("want me to put that on your calendar?"), never as a pushy pitch, then move on. This is how they discover you can hold their calendar, reminders, timers, lists, and what matters to them.
 
@@ -1439,7 +1441,7 @@ export default function Ankora() {
       // reminder as a duplicate when most of its words already appear in an active
       // reminder (or vice versa).
       const remTokens = (t) => new Set(String(t||"").toLowerCase().replace(/[^\w\s]/g," ").split(/\s+/).filter(w => w.length > 2));
-      const isDupReminder = (s) => reminders.some(r => {
+      const findDupReminder = (s) => reminders.find(r => {
         if (r.done || new Date(r.when).getTime() < Date.now()) return false;
         const a = remTokens(s.text), b = remTokens(r.text);
         if (!a.size || !b.size) return false;
@@ -1455,7 +1457,17 @@ export default function Ankora() {
       autos.forEach(s => {
         if (s.type === "remember") { if (addMemory(s.text)) saved++; return; }
         if (actedSigsRef.current.has(suggestionSig(s))) return;  // don't re-add the same item across turns
-        if (s.type === "reminder" && isDupReminder(s)) return;   // already booked (possibly reworded) — don't double-ping
+        if (s.type === "reminder") {
+          const dup = findDupReminder(s);
+          if (dup) {
+            // Same reminder, same time (to the minute) → true duplicate, skip.
+            // Same reminder, NEW time → the user rescheduled it: cancel the old
+            // ping and let the new one book, instead of swallowing the change.
+            const toMin = (w) => Math.floor(new Date(w).getTime() / 60000);
+            if (toMin(dup.when) === toMin(s.when)) return;
+            cancelReminder(dup.id);
+          }
+        }
         if (s.type === "grocery-remove" && !grocery.some(g => g.id === s.targetId)) return;  // stale/hallucinated id — nothing to remove
         if (s.type === "grocery") {
           const n = normG(s.text);
