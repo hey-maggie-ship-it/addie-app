@@ -1,6 +1,6 @@
 # Ankora Launch Copy
 
-All launch copy in one place, organized by channel. Last updated 2026-06-30.
+All launch copy in one place, organized by channel. Last updated 2026-07-06 (final pre-launch pass).
 
 ## Positioning (the throughline)
 
@@ -33,9 +33,16 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 
 ## Product Hunt
 
+**LIVE (launched 2026-07-06):** https://www.producthunt.com/products/ankora?launch=ankora
+
 **Tagline (locked):** The AI that gets you started
 
-**Description:**
+**Maggie's PH profile headline (shows under her name on every comment):** Making Ankora: AI that gets you started
+
+**Description (248 chars, PH limit is 260):**
+> Knowing what to do was never the hard part. Starting is. Tell Ankora the thing you're putting off and it hands back one small step you can do in the next ten minutes, then keeps you moving with reminders, focus timers, and a memory of how you work.
+
+**Long description (for directories / anywhere without the 260-char limit):**
 > Knowing what to do was never the hard part. Starting is. Ankora is a warm AI thinking partner that gets you moving: tell it the thing you're putting off, in a messy paragraph, and it hands back one small step you can do in the next ten minutes, then stays with you so you keep going. It remembers how you work, nudges you with reminders and timers, and works with an overwhelmed brain instead of against it. Not another app to maintain. The structure you used to get from a company, in your pocket.
 
 **Maker's first comment:**
@@ -56,8 +63,29 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 4. Slider example 3 or 4: regroup-when-frozen, or grocery + reminder capture
 5. Pricing: Free $0 (10/day) vs Pro $5/mo
 
+**Investor connect form (private, never shared publicly):**
+
+> **Why are you the right founder/team to work on this?**
+> For a decade my job was turning strategy into execution: I helped scale Fresh Clean Threads from $5M to $70M, rebuilt operating cadences for 100+ person ecommerce orgs, and led transformations for PE-backed companies. Designing the systems that turn a plan into motion is the thing I was hired for, over and over. Ankora is that skill set turned into software: an operating cadence for a team of one.
+> I also ship fast and lean. I built the entire product solo (AI thinking partner, reminders, focus timers, calendar handoffs, push notifications, billing) in months, at near-zero burn.
+
+> **Why did you pick this idea to work on?**
+> I lived it. When I left to start my own company, I learned I could build an operating cadence for a 120-person org but not for a team of one. All my effectiveness had quietly run on structure that came with the job: deadlines, a team, quarterly goals. Solo, I had the plan and nothing turning it into motion, and more planning never closed the gap.
+> I built Ankora to fix that for myself, then the market kept showing up: solopreneurs who lost the structure a job gave them, ADHD communities talking about task paralysis every day, overwhelmed parents carrying the household's mental load. Different people, same gap: starting, not organizing. Every existing tool is a planning tool, and this was never a planning problem.
+
+> **Who are your competitors, and what do you understand about this idea that they don't?**
+> Task managers (Todoist, Things, Notion) organize what you already know needs doing; they assume starting isn't the hard part. One-off AI task breakers (goblin.tools) break a task down once, then forget you. Gamified self-care apps (Finch) prove this demographic pays, but they build habit streaks, not real-work execution. General AI chat is a blank page with no structure and no follow-through.
+> What I understand that they don't: the bottleneck is activation, not organization. People don't need a better list, they need one small next step and someone staying with them while they do it. Ankora is AI-native with persistent memory of how you work, plus proactive follow-through: reminders, timers, check-ins. It compounds like a relationship, which is retention no static tool can copy.
+
+> **What's your revenue and/or growth rate?**
+> Launching publicly this week (Product Hunt plus community launch), so revenue is effectively day zero. Pricing is live: free tier at 10 messages a day, Pro at $5/mo. Happy to share early conversion and retention numbers as launch data comes in.
+
+> **Anything else you would like investors to know?**
+> Distribution is mapped and sequenced: my professional network first (a decade of DTC and ecommerce operators), then founder communities, then ADHD and mental-load communities with value-first content. The founder story resonates in every one of these channels because it's true.
+> The bigger picture: the solo economy keeps growing, and everyone in it loses the structure an employer used to provide. Ankora is that structure layer. Chat is the wedge; memory of how you work is the moat.
+
 **Topics:** Productivity, Artificial Intelligence, Mental Health (+ ADHD if available).
-**Timing:** PH days start 12:01am PT. Tue-Thu draws more traffic than weekends (note: planned July 3 is a Friday).
+**Timing:** PH days start 12:01am PT. Tue-Thu draws more traffic than weekends. Recommended: Tue July 7 or Wed July 8. Note for Okinawa: 12:01am PT = 4:01pm JST the same day, so a Tuesday launch goes live Tuesday afternoon your time.
 
 ---
 
@@ -80,6 +108,9 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 > If you've ever left a structured role to build something of your own, I'd love to hear how you handled this part. It's the thing no one warned me about.
 
 *(Optional: name Fresh Clean Threads explicitly instead of "a DTC brand.")*
+
+**First comment under your own post (keeps the external link out of the post body so LinkedIn doesn't bury it):**
+> We're also live on Product Hunt today: https://www.producthunt.com/products/ankora?launch=ankora. If Ankora resonates, a comment over there means a lot. 🙏
 
 ---
 
@@ -116,6 +147,11 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 > Free to start, 10 messages a day. Pro is $5/mo. Any device, no app store → ankorahq.com
 
 **7/**
+> We're live on Product Hunt today too: https://www.producthunt.com/products/ankora?launch=ankora
+>
+> If this resonates, a comment there helps more than you'd think.
+
+**8/**
 > If you've left a structured role to build your own thing, you might know this gap.
 >
 > What helped you bridge it? 👇
@@ -132,7 +168,7 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 
 > **Title:** I don't avoid tasks because they're hard. I avoid them because they're boring.
 >
-> For years I thought I had a discipline problem. What I actually have: if a task is tedious, or it needs more brainpower than the easy thing sitting next to it, I'll do the easy thing instead. All day. The important one just slides to tomorrow.
+> For years I thought I had a discipline problem. What I actually have is a much more specific problem: if a task is tedious, or it needs more brainpower than the easy thing sitting next to it, I'll do the easy thing instead. All day. The important one just slides to tomorrow.
 >
 > What's helped me:
 > 1. **Shrink step one until it's too small and low-effort to argue with.** Not "do the report," but "open the doc and type the headers." Low activation cost beats motivation.
@@ -143,18 +179,31 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 
 ### r/adhdwomen / ND communities (emotional lead)
 
-> **Title:** For most of my life I thought I was lazy and broken. It was never a character flaw.
+> **Title:** I had systems for everything. I didn’t realize that was the ADHD.
 >
-> The hardest part of a late diagnosis wasn't the diagnosis. It was realizing how many years I'd spent believing I was the problem: flaky, undisciplined, too much. I'd taken every bit of that feedback as proof something was wrong with me.
+> The hardest part of a late ADHD diagnosis wasn’t realizing I had ADHD.
 >
-> What's actually helped, more than any planner:
-> - Being gentle in the moment instead of piling on shame. The shame spiral costs more time than the task ever would.
-> - Shrinking the first step until it's too small to dread, so starting isn't a referendum on my worth.
-> - Letting something external hold the structure (a reminder, a timer, a kind nudge) instead of relying on willpower I don't always have.
+> It was realizing how much invisible effort I had been spending for years just to keep up.
 >
-> If you're newly diagnosed and grieving the "what if I'd known sooner," you're not alone, and you were never broken.
+> I wasn’t someone who had no systems. I had tons of systems. Lists, reminders, notes, routines, calendar blocks, backup plans for the backup plans. I had built an entire operating system around my brain because I had to.
 >
-> (I've been building something gentle around this idea myself, glad to share if anyone wants it / if mods are cool with it.)
+> But I didn’t realize other people weren’t working that hard to do the same basic things.
+>
+> They weren’t using half their energy just to remember where the keys are.\
+> They weren’t rewriting the same to-do list for the fifth time.\
+> They weren’t constantly trying to rebuild momentum from zero.\
+> They weren’t ending the day exhausted and wondering why they still felt behind.
+>
+> Getting diagnosed helped me stop treating that as a character flaw and start addressing it like a design problem.
+> 
+> What has helped me most:
+> - Being kinder in the moment instead of burning more energy on shame.
+> - Making the first step small enough that starting doesn’t feel like climbing a mountain.
+> - Letting something external hold the structure, like a reminder, a timer, or a nudge, instead of expecting my brain to carry it all alone.
+>
+> I’ve been building something around this idea for myself, mostly because I wanted a gentler way to turn the pile in my head into one next step and keep moving without relying on willpower alone.
+>
+> Happy to share if useful / if mods are okay with it. Mostly just sharing because I wish I had understood this sooner: needing more structure doesn’t mean you’re lazy. Sometimes it just means your brain has been doing too much in the background for too long.
 
 ### r/workingmoms / r/breakingmom (mental load)
 
@@ -171,11 +220,13 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 >
 > Curious how the rest of you keep the load from living rent-free in your head. (I've been building a little tool for this myself, happy to share if it's allowed.)
 
-### r/solopreneur / r/SideProject / r/SaaS / r/Entrepreneur (founder, name-attached OK)
+### r/solopreneur / r/SaaS / r/Entrepreneur (founder, name-attached OK)
 
 > **Title:** I scaled other people's companies for a decade. Going solo, I couldn't build structure for a team of one.
 >
-> My whole career was turning strategy into execution: I helped take a DTC brand from $5M to $70M and built operating cadences for 100+ person teams. I figured running my own thing would be easy by comparison.
+> My whole career was turning strategy into execution: I helped take a DTC brand from $5M to $70M and built operating cadences for 100+ person teams. I knew going solo would be hard. I expected to wrestle with supply chain, distribution, product-market fit, and all the usual founder problems.
+>
+>What I didn’t expect was that the hardest part would be managing my own productivity.
 >
 > What got me wasn't the unfamiliar work. It was that all my output had quietly depended on structure that came with the job: deadlines, a team, a cadence. Solo, I had the plan and nothing turning it into motion. I rewrote the same to-do lists for weeks.
 >
@@ -183,11 +234,56 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 >
 > Mostly I'm curious: for those who left a structured role to go solo, what did you put in place to replace the scaffolding? That transition is brutal and under-discussed.
 
+### r/SideProject
+
+> **Title:** I built a structure tool because my solo projects kept stalling after the planning phase
+>
+> I just launched Ankora on Product Hunt and would love feedback from other builders:
+>
+> https://www.producthunt.com/products/ankora?launch=ankora
+>
+> I built it after noticing a pattern in my own solo work: I usually knew the direction, but I kept losing momentum between planning and doing.
+>
+> When you’re inside a company, structure is built into the job. There are deadlines, meetings, team check-ins, and people waiting on the next thing.
+>
+> Solo, that scaffolding disappears. I’d have a plan, but nothing consistently turning it into motion.
+>
+> Ankora is my attempt at replacing some of that structure. It helps take a messy pile of thoughts, tasks, and priorities and turn it into one next step, then uses reminders and focus timers to keep you moving.
+>
+> I’m trying to figure out whether this is a real pain point for other solo builders or mostly just something I needed.
+>
+> Would love feedback on:
+>
+> 1. Does the problem make sense?
+> 2. Would you use something like this? Why or why not?
+>
+> Please be direct. I’m especially interested in what feels confusing, unnecessary, or not painful enough.
+
+> **Title:** I soft launched an AI structure tool for solo builders. Is this actually useful?
+>
+> I just soft launched Ankora, an AI thinking partner for solo builders who have too many ideas, tasks, and priorities floating around but no external structure to keep them moving.
+>
+> 
+>
+> Ankora helps turn the messy pile into one next step, then keeps you moving with reminders and focus timers.
+>
+> Link: https://ankorahq.com
+>
+> I’d love honest feedback:
+>
+> 1. Does this feel like a real pain point?
+> 2. Would you use something like this? Why or why not?
+> 3. Is the landing page clear on what it does?
+>
+> Not looking for validation-only feedback. I’d rather know what feels confusing, unnecessary, or not painful enough.
 ---
 
 ## Personal outreach (texts to send first)
 
 Warm, name-attached, soft asks with an easy out. Swap in names. Send these before the public posts.
+
+**Optional PS for anyone likely to have a Product Hunt account (don't mass-add it):**
+> PS: we're live on Product Hunt today if you're on there → https://www.producthunt.com/products/ankora?launch=ankora
 
 **1. Early testers (re-engage, including the quiet ones)**
 > Hey [name]! Remember that little AI app I had you try a while back? I finally got it to a place I'm genuinely proud of and I'm soft-launching it this week, now called Ankora (ankorahq.com). It helps turn a messy day into one clear next step. No pressure at all to use it, but if anyone in your world is buried in their to-do list or juggling a lot, I'd love if you passed it their way. Would mean a lot. 🙏
@@ -205,8 +301,8 @@ Warm, name-attached, soft asks with an easy out. Swap in names. Send these befor
 - [ ] **Launch week:** Post LinkedIn (lead asset for professional network) + personal outreach list (20 people)
 - [ ] Set up X / Twitter account, post thread, pin tweet 1
 - [ ] Founder subs: r/SideProject, r/SaaS, r/indiehackers (name-attached "I built this" OK), r/Entrepreneur / r/solopreneur (value-first)
-- [ ] Product Hunt: gallery images, schedule submission
+- [x] Product Hunt: gallery images, schedule submission (LAUNCHED 2026-07-06)
 - [ ] ADHD: r/adhdwomen (emotional lead, anonymous, value-first); ND Discords / TikTok
 - [ ] Mental load: r/workingmoms / r/breakingmom (value-first)
 - [ ] r/productivity (value-first)
-- [ ] Record 60-sec demo video
+- [x] Demo GIFs recorded (desktop + mobile, silent). Optional: 60-sec narrated video via Loom / Win+Alt+R using the same brain dump → next step → timer flow
