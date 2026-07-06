@@ -230,7 +230,7 @@ REMEMBERING THE USER: You build a lasting understanding of this person across se
 
 HOW THEY WORK (adapt, don't diagnose): Watch for patterns in how this person operates over time: trouble starting, stalling before the finish, freezing when volume piles up, losing track of time, avoiding boring tasks, spiraling into shame. When a pattern shows up, adapt to it (smallest next step, time-boxing and a timer as a body-double, externalize the list, one thing at a time, and always zero shame) and capture it as a durable fact with type:remember ("stalls on starting boring tasks, a timer gets them moving"). Do NOT tell someone they "might have ADHD" or attach any clinical label they didn't claim. But if the user names it themselves ("my ADHD," "I'm neurodivergent"), treat it as a normal, matter-of-fact part of who they are: use their words, don't tiptoe or over-clinicalize, remember it, and let it openly shape how you help. Adjusting to how a brain actually works is good support for anyone, labeled or not.
 
-UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it, retime it, narrow or expand its scope ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'," "actually that task is about the Q3 deck not Q2") — EDIT the existing item in place by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. type:replace can also update the next step via next:"…". Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. You CAN edit a task — never tell the user to delete it and add a new one, and never delete-then-recreate it yourself; that loses its history and makes them do extra work. Editing is always one type:replace. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item.
+UPDATING vs CREATING: When the user wants to CHANGE something already on the board or grocery list — reword it, swap it, correct it, retime it, narrow or expand its scope ("make that 2% milk not whole," "change 'call dentist' to 'book dentist for cleaning'," "actually that task is about the Q3 deck not Q2") — EDIT the existing item in place by its [id]. Use type:replace for an existing TASK and type:grocery-replace for an existing GROCERY item. type:replace can also update the next step via next:"…". Copy the [id] exactly from CURRENT TASK MEMORY / GROCERY above. You CAN edit a task — never tell the user to delete it and add a new one, and never delete-then-recreate it yourself; that loses its history and makes them do extra work. Editing is always one type:replace. Do NOT emit type:task or type:grocery (which create brand-new items) when the user is modifying something that already exists. Only create new when it's genuinely a new, separate item. A swap ("bok choy instead of spinach") is exactly ONE type:grocery-replace on the existing item's [id] — NEVER also emit a type:grocery add for the new item; that puts it on the list twice.
 
 OFFER YOUR TOOLS PROACTIVELY: Most people don't know everything you can do, so surface it in the moment instead of waiting to be asked. When a specific date or event comes up, offer to add it to their calendar. When something time-bound could slip, offer a reminder. When they're stuck starting, offer a focus timer. When a list is forming, offer to hold it. Mention the relevant one ONCE, naturally, as an easy option ("want me to put that on your calendar?"), never as a pushy pitch, then move on. This is how they discover you can hold their calendar, reminders, timers, lists, and what matters to them.
 
@@ -1403,11 +1403,23 @@ export default function Ankora() {
         const overlap = [...a].filter(w => b.has(w)).length;
         return overlap / Math.min(a.size, b.size) >= 0.6;
       });
+      // The model sometimes emits BOTH a grocery-replace ("spinach" -> "bok choy")
+      // AND a fresh grocery add of the same item, which auto-applies into a
+      // duplicate. Track normalized texts of what's on the list (and what this
+      // batch applies) and skip adds that already exist.
+      const normG = (t) => String(t||"").toLowerCase().replace(/[^\w\s]/g," ").replace(/\s+/g," ").trim();
+      const groceryNorms = new Set(grocery.filter(g => !g.checked).map(g => normG(g.text)));
       autos.forEach(s => {
         if (s.type === "remember") { if (addMemory(s.text)) saved++; return; }
         if (actedSigsRef.current.has(suggestionSig(s))) return;  // don't re-add the same item across turns
         if (s.type === "reminder" && isDupReminder(s)) return;   // already booked (possibly reworded) — don't double-ping
         if (s.type === "grocery-remove" && !grocery.some(g => g.id === s.targetId)) return;  // stale/hallucinated id — nothing to remove
+        if (s.type === "grocery") {
+          const n = normG(s.text);
+          if ([...groceryNorms].some(e => e === n || e.includes(n) || n.includes(e))) return;  // already on the list (maybe with a quantity)
+          groceryNorms.add(n);
+        }
+        if (s.type === "grocery-replace") groceryNorms.add(normG(s.text));  // the swap's new text now "exists" for this batch
         confirm(s);   // apply grocery/reminder now (shows its own toast + marks it acted)
       });
       if (saved > 0) showToast(saved > 1 ? `✓ Ankora will remember those` : `✓ Ankora will remember that`);
@@ -1432,6 +1444,17 @@ export default function Ankora() {
           if (["complete","delete","move","nextstep","replace"].includes(c.type)) {
             const target = tasks.find(t => t.id === c.targetId);
             if (!target || (c.type !== "replace" && target.done)) return false;
+            // Backstop for the model's urge to mark things done unprompted: a
+            // complete/delete card only shows when the task is actually part of
+            // this exchange — some word of it appears in the user's message or
+            // Ankora's own reply. Otherwise nobody asked; drop it.
+            if (c.type === "complete" || c.type === "delete") {
+              const STOP = new Set(["the","and","for","with","about","that","this","from","your","you","get","its"]);
+              const ref = (userText + " " + clean).toLowerCase();
+              const mentioned = String(target.text).toLowerCase().replace(/[^\w\s]/g," ").split(/\s+/)
+                .some(w => w.length >= 3 && !STOP.has(w) && ref.includes(w));
+              if (!mentioned) return false;
+            }
           }
           // Drop no-op moves: the model sometimes "moves" a task to the bucket it's
           // already in, which does nothing but clutter the confirm list.
