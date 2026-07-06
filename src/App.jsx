@@ -140,7 +140,7 @@ function buildProfileBlock(profile) {
   return `\n\nUSER PROFILE (from onboarding — use to shape your tone and suggestions from the first message):\n${parts.join("\n")}\n\nADAPT OVER TIME: This profile is a starting point, not a cage. If the user gives a clear signal mid-conversation — "you're being too wordy," "just tell me what to do," "slow down," visible frustration — honor it and adjust your style for the rest of the session. Don't silently re-profile them on a whim; respond to explicit cues. They can change these preferences anytime in Settings.`;
 }
 
-function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", calendar = []) {
+function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", calendar = [], reminders = []) {
   const now = new Date();
   const fmtFull = (d) => d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const fmtISO  = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -177,10 +177,14 @@ function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", cal
   const calendarBlock = calList.length
     ? `\n\nUSER'S UPCOMING CALENDAR (next 7 days, read from their subscribed calendar — use it to understand what's going on in their life and plan realistically around it; do NOT list it back unless asked, and you can't edit it):\n${calList.map(e => `- ${e.when}: ${e.title}`).join("\n")}`
     : "";
+  // Reminders already booked to fire. The model MUST see these: reminders apply
+  // instantly (no confirm chip), so a re-suggested one silently books a duplicate.
+  const remList = (reminders || []).filter(r => r && !r.done && new Date(r.when).getTime() > Date.now());
+  const remindersBlock = `\n\nACTIVE REMINDERS (already set and will fire — these are booked, do NOT create them again):\n${remList.length ? remList.map(r => `- "${r.text}" at ${r.when}`).join("\n") : "none"}\nNEVER emit a type:reminder that duplicates or rephrases one listed above — it books a second ping immediately. Only emit type:reminder for a genuinely NEW reminder the user just asked for. If the user wants to change one's time, emit the new one and tell them the old one can be removed in the Board's Reminders section.`;
 
   return `You are Ankora, a warm, direct, no-nonsense thinking partner for overwhelmed high achievers — including people with ADHD. Your job is to help them regroup, get clear on what matters now, and maintain momentum. Not a task manager, not a therapist.
 
-Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}${memoryBlock}${notesBlock}${calendarBlock}
+Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso}). Today is ${todayDate}. Tomorrow is ${tomorrowDate}.${buildProfileBlock(profile)}${memoryBlock}${notesBlock}${calendarBlock}${remindersBlock}
 
 Be DECISIVE when someone needs an answer or is ready to act — give your best take in one shot rather than dragging a question across many turns. One clarifying question is fine; three is too many.
 
@@ -224,7 +228,7 @@ OFFER YOUR TOOLS PROACTIVELY: Most people don't know everything you can do, so s
 
 RESURFACING STALE TASKS: A task tagged [sitting Nd] has been on the board that many days without getting done. When the moment fits (a check-in, planning, or a natural lull, never mid-crisis), gently resurface ONE stale task and ask if it's still relevant and worth keeping. If they say it's already done, use type:complete. If it no longer matters, offer to clear it with type:delete. If it matters but not now, offer type:move to park it. Raise one at a time, never dump the whole stale list, and never nag.
 
-SAYING WHAT YOU DID (be accurate): Grocery items and reminders you emit take effect immediately, so it is true to say "added that to your list" or "I'll ping you then." But board tasks and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's on your board," "confirm below and it goes on your calendar." Never say a task is added or an event is scheduled while it's still a pending card.
+SAYING WHAT YOU DID (be accurate): Grocery items and reminders you emit take effect immediately, so it is true to say "added that to your list" or "I'll ping you then." But board tasks and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's on your board," "confirm below and it goes on your calendar." Never say a task is added or an event is scheduled while it's still a pending card. Because grocery items and reminders apply silently with NO visible card, you MUST name them in your reply so the user knows exactly what was added — when adding several (e.g. recipe ingredients), list them out briefly ("Added: ground beef, taco seasoning, rice, lettuce, tomato, cheese"). Never trail off with a colon and nothing after it. If the user then swaps, removes, or edits any of them, update the actual list with type:grocery-replace / type:grocery-remove — don't just acknowledge in prose.
 
 SUGGESTION FORMAT:
 
@@ -1353,7 +1357,7 @@ export default function Ankora() {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile, memory, notes, calEvents), messages: next.map(m => ({ role: m.role, content: m.content })), timeZone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })() }),
+        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile, memory, notes, calEvents, reminders), messages: next.map(m => ({ role: m.role, content: m.content })), timeZone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })() }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -1378,9 +1382,23 @@ export default function Ankora() {
       const autos = suggestions.filter(s => AUTO_APPLY.has(s.type));
       const chips = suggestions.filter(s => !AUTO_APPLY.has(s.type));
       let saved = 0;
+      // A re-suggested reminder auto-applies into a duplicate ping, and the model
+      // rephrases them ("Bring up Ankora GTM launch progress" -> "Bring up Ankora
+      // launch progress"), so exact-signature dedupe isn't enough. Treat a new
+      // reminder as a duplicate when most of its words already appear in an active
+      // reminder (or vice versa).
+      const remTokens = (t) => new Set(String(t||"").toLowerCase().replace(/[^\w\s]/g," ").split(/\s+/).filter(w => w.length > 2));
+      const isDupReminder = (s) => reminders.some(r => {
+        if (r.done || new Date(r.when).getTime() < Date.now()) return false;
+        const a = remTokens(s.text), b = remTokens(r.text);
+        if (!a.size || !b.size) return false;
+        const overlap = [...a].filter(w => b.has(w)).length;
+        return overlap / Math.min(a.size, b.size) >= 0.6;
+      });
       autos.forEach(s => {
         if (s.type === "remember") { if (addMemory(s.text)) saved++; return; }
         if (actedSigsRef.current.has(suggestionSig(s))) return;  // don't re-add the same item across turns
+        if (s.type === "reminder" && isDupReminder(s)) return;   // already booked (possibly reworded) — don't double-ping
         confirm(s);   // apply grocery/reminder now (shows its own toast + marks it acted)
       });
       if (saved > 0) showToast(saved > 1 ? `✓ Ankora will remember those` : `✓ Ankora will remember that`);
@@ -1400,10 +1418,18 @@ export default function Ankora() {
             if (calAddedRef.current.has(cs) || calTitles.has(cs)) return false;  // already added, or same event already waiting
             calTitles.add(cs);   // and dedupe repeats within this same batch
           }
+          // Task-targeting suggestions must point at a real, still-open task —
+          // a hallucinated or stale id renders as a blank card and does nothing.
+          if (["complete","delete","move","nextstep","replace"].includes(c.type)) {
+            const target = tasks.find(t => t.id === c.targetId);
+            if (!target || (c.type !== "replace" && target.done)) return false;
+          }
           // Drop no-op moves: the model sometimes "moves" a task to the bucket it's
           // already in, which does nothing but clutter the confirm list.
           if (c.type === "move" && tasks.find(t => t.id === c.targetId)?.bucket === c.bucket) return false;
-          return !seen.has(sg) && !actedSigsRef.current.has(sg);
+          if (seen.has(sg) || actedSigsRef.current.has(sg)) return false;
+          seen.add(sg);   // dedupe within this same batch too (model repeats itself)
+          return true;
         })];
       });
     } catch { setMessages([...next, { role: "assistant", content: "Connection issue. Take a breath — try again.", id: "e"+Date.now() }]); }
@@ -2362,7 +2388,7 @@ export default function Ankora() {
                 </div>
               );
             })}
-            {loading && <div style={{ display:"flex", justifyContent:"flex-start", marginTop:12 }}><div style={{ backgroundColor:"#E9E9EB", borderRadius:18, padding:"11px 16px" }}><span style={{ fontSize:20, letterSpacing:3, color:"#8E8E93" }}>···</span></div></div>}
+            {loading && <div style={{ display:"flex", justifyContent:"flex-start", marginTop:12 }}><div style={{ backgroundColor:"#E9E9EB", borderRadius:18, padding:"13px 16px", display:"flex", gap:4, alignItems:"center" }}><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></div></div>}
             {pending.length>0 && (
               <div style={{ marginTop:16 }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"0 0 10px" }}>
@@ -2416,14 +2442,17 @@ export default function Ankora() {
             <BucketSection label="Today" items={todayTasks} bucket="today" />
             <BucketSection label="This week" items={weekTasks} bucket="week" />
             <BucketSection label="Parked" items={parkedTasks} bucket="parked" collapsible />
-            {upcomingReminders.length>0 && (
-              <div style={{ marginBottom:24 }}>
+            {/* Always visible (even when empty) so users know where reminders live. */}
+            <div style={{ marginBottom:24 }}>
                 <div onClick={() => setRemindersExpanded(v=>!v)} role="button"
                   style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 0", cursor:"pointer" }}>
-                  <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders · {upcomingReminders.length}</p>
+                  <p style={{ fontSize:12, color:C.text3, margin:0, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em" }}>⏰ Reminders{upcomingReminders.length ? ` · ${upcomingReminders.length}` : ""}</p>
                   <span style={{ fontSize:12, color:C.text2, fontWeight:600 }}>{remindersExpanded ? "Hide" : "Show"}</span>
                 </div>
                 <p style={{ fontSize:12, color:C.text3, margin:"2px 0 8px", lineHeight:1.4 }}>Things Ankora's holding to ping you at the right time — peek when you have a free moment.</p>
+                {remindersExpanded && upcomingReminders.length === 0 && (
+                  <p style={{ fontSize:13, color:C.text3, margin:"4px 0 0", fontStyle:"italic" }}>Nothing scheduled — ask Ankora to remind you about something and it'll show up here.</p>
+                )}
                 {remindersExpanded && [...upcomingReminders].sort((a,b)=> new Date(b.when) - new Date(a.when)).map(r => {
                   const past = false;
                   return (
@@ -2436,8 +2465,7 @@ export default function Ankora() {
                     </div>
                   );
                 })}
-              </div>
-            )}
+            </div>
             {doneTasks.length>0 && (
               <div style={{ marginBottom:24 }}>
                 <div onClick={() => setDoneExpanded(!doneExpanded)} role="button"
