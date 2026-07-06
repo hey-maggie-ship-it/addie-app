@@ -98,6 +98,14 @@ const TIMER_PRESETS = [10, 15, 25, 45];
 // confirmed/skipped, so an identical re-suggestion from the model doesn't reappear.
 const suggestionSig = (s) => `${s.type}|${s.targetId||""}|${s.text||s.title||""}|${s.when||""}|${s.minutes||""}`;
 
+// Collision-proof id: "g"+Date.now() alone produced DUPLICATE ids when several
+// items were created in the same millisecond (e.g. a recipe's worth of grocery
+// items auto-applying in one loop), which broke id-targeted edits/removals.
+// Keep the leading timestamp (stale-task age parsing reads it; parseInt stops
+// at the "x") and append a monotonic counter for uniqueness.
+let idSeq = 0;
+const genId = (prefix) => `${prefix}${Date.now()}x${++idSeq}`;
+
 const BUCKET_STYLE = {
   today:  { bg: "#FEF2F2", text: "#B91C1C", label: "Today" },
   week:   { bg: "#FFFBEB", text: "#92400E", label: "This week" },
@@ -228,7 +236,7 @@ OFFER YOUR TOOLS PROACTIVELY: Most people don't know everything you can do, so s
 
 RESURFACING STALE TASKS: A task tagged [sitting Nd] has been on the board that many days without getting done. When the moment fits (a check-in, planning, or a natural lull, never mid-crisis), gently resurface ONE stale task and ask if it's still relevant and worth keeping. If they say it's already done, use type:complete. If it no longer matters, offer to clear it with type:delete. If it matters but not now, offer type:move to park it. Raise one at a time, never dump the whole stale list, and never nag.
 
-SAYING WHAT YOU DID (be accurate): Grocery items and reminders you emit take effect immediately, so it is true to say "added that to your list" or "I'll ping you then." But board tasks and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's on your board," "confirm below and it goes on your calendar." Never say a task is added or an event is scheduled while it's still a pending card. Because grocery items and reminders apply silently with NO visible card, you MUST name them in your reply so the user knows exactly what was added — when adding several (e.g. recipe ingredients), list them out briefly ("Added: ground beef, taco seasoning, rice, lettuce, tomato, cheese"). Never trail off with a colon and nothing after it. If the user then swaps, removes, or edits any of them, update the actual list with type:grocery-replace / type:grocery-remove — don't just acknowledge in prose.
+SAYING WHAT YOU DID (be accurate): Grocery adds, updates, and removals, plus reminders, take effect immediately when you emit them, so it is true to say "added that to your list," "removed those," or "I'll ping you then." For removals/updates you MUST copy the exact [id] from the GROCERY list above — a wrong id edits the wrong item. But board tasks and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's on your board," "confirm below and it goes on your calendar." Never say a task is added or an event is scheduled while it's still a pending card. Because grocery items and reminders apply silently with NO visible card, you MUST name them in your reply so the user knows exactly what was added — when adding several (e.g. recipe ingredients), list them out briefly ("Added: ground beef, taco seasoning, rice, lettuce, tomato, cheese"). Never trail off with a colon and nothing after it. If the user then swaps, removes, or edits any of them, update the actual list with type:grocery-replace / type:grocery-remove — don't just acknowledge in prose.
 
 SUGGESTION FORMAT:
 
@@ -1161,7 +1169,7 @@ export default function Ankora() {
       return;
     }
     posthog.capture("reminder_scheduled");
-    const rid = "r" + Date.now();
+    const rid = genId("r");
     setReminders(prev => [{ id: rid, text, when: when.toISOString(), pushId: null, createdAt: new Date().toISOString(), done: false }, ...prev]);
     showToast("Reminder set");
     if (safeNotifPermission() !== "granted") await requestNotifPermission();
@@ -1378,7 +1386,7 @@ export default function Ankora() {
       // "added it / I'll ping you" is literally true the moment she says it. Board
       // tasks and calendar handoffs still wait for a Confirm tap — curating the board
       // matters, and calendar opens an external app that needs a deliberate tap.
-      const AUTO_APPLY = new Set(["remember", "grocery", "reminder"]);
+      const AUTO_APPLY = new Set(["remember", "grocery", "grocery-replace", "grocery-remove", "reminder"]);
       const autos = suggestions.filter(s => AUTO_APPLY.has(s.type));
       const chips = suggestions.filter(s => !AUTO_APPLY.has(s.type));
       let saved = 0;
@@ -1399,6 +1407,7 @@ export default function Ankora() {
         if (s.type === "remember") { if (addMemory(s.text)) saved++; return; }
         if (actedSigsRef.current.has(suggestionSig(s))) return;  // don't re-add the same item across turns
         if (s.type === "reminder" && isDupReminder(s)) return;   // already booked (possibly reworded) — don't double-ping
+        if (s.type === "grocery-remove" && !grocery.some(g => g.id === s.targetId)) return;  // stale/hallucinated id — nothing to remove
         confirm(s);   // apply grocery/reminder now (shows its own toast + marks it acted)
       });
       if (saved > 0) showToast(saved > 1 ? `✓ Ankora will remember those` : `✓ Ankora will remember that`);
@@ -1437,17 +1446,17 @@ export default function Ankora() {
   };
 
   const confirm = (s) => {
-    if (s.type === "grocery") { setGrocery(p => [...p, { id:"g"+Date.now(), text:s.text, checked:false, store:s.store||"" }]); showToast(`Added: ${s.text}`); }
+    if (s.type === "grocery") { setGrocery(p => [...p, { id:genId("g"), text:s.text, checked:false, store:s.store||"" }]); showToast(`Added: ${s.text}`); }
     else if (s.type === "grocery-replace") {
       const exists = grocery.some(g => g.id === s.targetId);
       if (exists) { setGrocery(p => p.map(g => g.id===s.targetId ? {...g, text:s.text, store:s.store!==undefined?s.store:g.store} : g)); showToast("Item updated"); }
-      else { setGrocery(p => [...p, { id:"g"+Date.now(), text:s.text, checked:false, store:s.store||"" }]); showToast(`Added: ${s.text}`); }
+      else { setGrocery(p => [...p, { id:genId("g"), text:s.text, checked:false, store:s.store||"" }]); showToast(`Added: ${s.text}`); }
     }
     else if (s.type === "grocery-remove") { setGrocery(p => p.filter(g => g.id!==s.targetId)); showToast("Item removed"); }
     else if (s.type === "replace") {
       const exists = tasks.some(t => t.id === s.targetId);
       if (exists) { setTasks(p => p.map(t => t.id===s.targetId ? {...t, text:s.text, nextStep:s.nextStep||t.nextStep} : t)); showToast("Task updated"); }
-      else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = n>=MAX_TODAY?"week":"today"; setTasks(p => [...p, {id:"t"+Date.now(), text:s.text, bucket:b, nextStep:s.nextStep||"", done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
+      else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = n>=MAX_TODAY?"week":"today"; setTasks(p => [...p, {id:genId("t"), text:s.text, bucket:b, nextStep:s.nextStep||"", done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
     }
     else if (s.type === "nextstep") { setTasks(p => p.map(t => t.id===s.targetId ? {...t, nextStep:s.text} : t)); showToast("Next step saved"); }
     else if (s.type === "complete") {
@@ -1477,7 +1486,7 @@ export default function Ankora() {
     }
     else if (s.type === "reminder") { scheduleReminder(s.text, s.when); }
     else if (s.type === "remember") { addMemory(s.text); }
-    else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = s.bucket==="today"&&n>=MAX_TODAY?"week":s.bucket; setTasks(p => [...p, {id:"t"+Date.now(), text:s.text, bucket:b, done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
+    else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = s.bucket==="today"&&n>=MAX_TODAY?"week":s.bucket; setTasks(p => [...p, {id:genId("t"), text:s.text, bucket:b, done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
     actedSigsRef.current.add(suggestionSig(s));   // remember it so a re-suggestion doesn't reappear
     setPending(p => p.filter(x => x.id !== s.id));
   };
@@ -1496,12 +1505,12 @@ export default function Ankora() {
     if (!newTask.trim()) return;
     const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length;
     const b = newBucket==="today"&&n>=MAX_TODAY?"week":newBucket;
-    setTasks(p => [...p, {id:"t"+Date.now(), text:newTask.trim(), bucket:b, done:false}]);
+    setTasks(p => [...p, {id:genId("t"), text:newTask.trim(), bucket:b, done:false}]);
     setNewTask(""); showToast(`Added to ${BUCKET_STYLE[b].label}`);
   };
   const addGroceryItem = () => {
     if (!newGrocery.trim()) return;
-    setGrocery(p => [...p, {id:"g"+Date.now(), text:newGrocery.trim(), checked:false, store:newStore.trim()}]);
+    setGrocery(p => [...p, {id:genId("g"), text:newGrocery.trim(), checked:false, store:newStore.trim()}]);
     setNewGrocery(""); setNewStore("");
   };
   const toggleGrocery = (id) => setGrocery(p => p.map(g => g.id===id?{...g,checked:!g.checked}:g));
