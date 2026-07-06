@@ -612,7 +612,7 @@ export default function Ankora() {
     let cancelled = false;
     (async () => {
       const [{ data, error }, { data: subData }] = await Promise.all([
-        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions, reminders, memory").eq("user_id", session.user.id).maybeSingle(),
+        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions, reminders, memory, notes").eq("user_id", session.user.id).maybeSingle(),
         supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle(),
       ]);
       if (cancelled) return;
@@ -775,6 +775,49 @@ export default function Ankora() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, cloudLoaded]);
+
+  // ── Catch-up sync: mobile browsers kill the realtime websocket while the app is
+  // backgrounded, and missed events are never replayed — so changes made on another
+  // device while the phone slept simply never arrived. On every return to the
+  // foreground, re-fetch the cloud row and adopt it (or push local changes first if
+  // any are unsaved — they win, and realtime propagates them the other way).
+  const syncFromCloud = useCallback(async () => {
+    if (!session || !cloudLoaded) return;
+    const d = latestRef.current;
+    const localJson = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions, d.reminders, d.memory, d.notes);
+    if (localJson !== lastSyncedRef.current) { saveToCloud(); return; }   // unsaved local edits — push, don't pull
+    const { data, error } = await supabase.from("user_data")
+      .select("tasks, grocery, profile, messages, sessions, reminders, memory, notes")
+      .eq("user_id", session.user.id).maybeSingle();
+    if (error || !data) return;
+    const rTasks    = Array.isArray(data.tasks)    ? data.tasks    : [];
+    const rGrocery  = Array.isArray(data.grocery)  ? data.grocery  : [];
+    const rMessages = Array.isArray(data.messages) ? data.messages : [];
+    const rSessions = Array.isArray(data.sessions) ? data.sessions : [];
+    const rReminders = Array.isArray(data.reminders) ? data.reminders : [];
+    const rMemory   = Array.isArray(data.memory)    ? data.memory    : [];
+    const rNotes    = typeof data.notes === "string" ? data.notes : "";
+    const rProfile  = data.profile || null;
+    const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions, rReminders, rMemory, rNotes);
+    if (incoming === lastSyncedRef.current) return;   // nothing new
+    lastSyncedRef.current = incoming;
+    setTasks(rTasks); setGrocery(rGrocery);
+    if (rMessages.length > 0) setMessages(rMessages);
+    setSessions(rSessions); setReminders(rReminders); setMemory(rMemory); setNotes(rNotes);
+    if (rProfile) { setProfile(rProfile); setOnboarded(true); }
+  }, [session, cloudLoaded, saveToCloud]);
+
+  useEffect(() => {
+    const onVis = () => { if (!document.hidden) syncFromCloud(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", syncFromCloud);
+    window.addEventListener("pageshow", syncFromCloud);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", syncFromCloud);
+      window.removeEventListener("pageshow", syncFromCloud);
+    };
+  }, [syncFromCloud]);
 
   const sendMagicLink = async () => {
     const email = authEmail.trim();
