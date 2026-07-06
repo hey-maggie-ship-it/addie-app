@@ -2303,7 +2303,7 @@ export default function Ankora() {
         <img src="/favicon.svg" alt="" style={{ width:28, height:27, flexShrink:0 }} />
         <div style={{ flex:1 }}>
           <p style={{ margin:0, fontWeight:600, fontSize:15, color:C.text }}>Ankora</p>
-          <p style={{ margin:0, fontSize:11.5, color:C.text3 }}>your place to regroup</p>
+          <p style={{ margin:0, fontSize:11.5, color:C.text3 }}>let's get going</p>
         </div>
         {tab==="chat" && sessions.length>0 && (
           <span onClick={() => setShowHistory(true)} role="button" title="Past sessions"
