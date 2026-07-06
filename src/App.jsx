@@ -238,7 +238,7 @@ OFFER YOUR TOOLS PROACTIVELY: Most people don't know everything you can do, so s
 
 RESURFACING STALE TASKS: A task tagged [sitting Nd] has been on the board that many days without getting done. When the moment fits (a check-in, planning, or a natural lull, never mid-crisis), gently resurface ONE stale task and ask if it's still relevant and worth keeping. If they say it's already done, use type:complete. If it no longer matters, offer to clear it with type:delete. If it matters but not now, offer type:move to park it. Raise one at a time, never dump the whole stale list, and never nag.
 
-SAYING WHAT YOU DID (be accurate): Grocery adds, updates, and removals, plus reminders, take effect immediately when you emit them, so it is true to say "added that to your list," "removed those," or "I'll ping you then." For removals/updates you MUST copy the exact [id] from the GROCERY list above — a wrong id edits the wrong item. But board tasks and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's on your board," "confirm below and it goes on your calendar." Never say a task is added or an event is scheduled while it's still a pending card. Because grocery items and reminders apply silently with NO visible card, you MUST name them in your reply so the user knows exactly what was added — when adding several (e.g. recipe ingredients), list them out briefly ("Added: ground beef, taco seasoning, rice, lettuce, tomato, cheese"). Never trail off with a colon and nothing after it. If the user then swaps, removes, or edits any of them, update the actual list with type:grocery-replace / type:grocery-remove — don't just acknowledge in prose.
+SAYING WHAT YOU DID (be accurate): Grocery adds, updates, and removals, plus reminders, take effect immediately when you emit them, so it is true to say "added that to your list," "removed those," or "I'll ping you then." For removals/updates you MUST copy the exact [id] from the GROCERY list above — a wrong id edits the wrong item. But board tasks and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's on your board," "confirm below and it goes on your calendar." Never say a task is added or an event is scheduled while it's still a pending card. Timers: when the user themselves asked to start or set a timer, it starts the moment you reply, so "Go, 15 minutes on the clock" is true. When YOU are offering a timer they didn't ask for, it appears as a card they must tap, so invite the tap ("hit Start below") instead of claiming it's running. Because grocery items and reminders apply silently with NO visible card, you MUST name them in your reply so the user knows exactly what was added — when adding several (e.g. recipe ingredients), list them out briefly ("Added: ground beef, taco seasoning, rice, lettuce, tomato, cheese"). Never trail off with a colon and nothing after it. If the user then swaps, removes, or edits any of them, update the actual list with type:grocery-replace / type:grocery-remove — don't just acknowledge in prose.
 
 SUGGESTION FORMAT:
 
@@ -468,6 +468,10 @@ export default function Ankora() {
         if (s.grocery) setGrocery(s.grocery);
         if (s.messages) setMessages(s.messages);
         if (Array.isArray(s.sessions)) setSessions(s.sessions);
+        // Un-acted Confirm cards belong to the restored conversation — without this,
+        // closing the app before tapping Confirm silently loses the card.
+        if (Array.isArray(s.pending)) setPending(s.pending);
+        if (Array.isArray(s.actedSigs)) actedSigsRef.current = new Set(s.actedSigs);
         // Drop reminders more than a day past so the list doesn't grow forever.
         if (Array.isArray(s.reminders)) setReminders(s.reminders.filter(r => new Date(r.when).getTime() > Date.now() - 864e5));
         if (Array.isArray(s.memory)) setMemory(s.memory);
@@ -554,8 +558,10 @@ export default function Ankora() {
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, reminders, memory, notes, lastActivity })); } catch {}
-  }, [tasks, grocery, messages, sessions, reminders, memory, notes, lastActivity, hydrated]);
+    // actedSigs rides along without being a dep: every path that mutates it also
+    // changes pending / grocery / reminders / memory, so the write still happens.
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, grocery, messages, sessions, reminders, memory, notes, lastActivity, pending, actedSigs: [...actedSigsRef.current] })); } catch {}
+  }, [tasks, grocery, messages, sessions, reminders, memory, notes, lastActivity, pending, hydrated]);
 
   // ── Keep the Android/iOS back gesture INSIDE the app. ──
   // Pixel gesture-nav fires the browser's Back on edge swipes, which exits a PWA.
@@ -1349,11 +1355,20 @@ export default function Ankora() {
     const ts = parseInt((msgs[0]?.id || "").replace(/^\D+/, "") || String(Date.now()), 10);
     const rawTitle = firstUser?.content?.trim() || "";
     const autoTitle = starter?.label || (rawTitle ? rawTitle.slice(0, 48) + (rawTitle.length > 48 ? "…" : "") : null);
+    // Snapshot the ref NOW: the setSessions updater runs after the caller has
+    // already swapped actedSigsRef for the next conversation (e.g. resumeSession),
+    // and reading it lazily would archive the wrong conversation's signatures.
+    const actedSigs = [...actedSigsRef.current];
     setSessions(prev => [{
       id: "s" + Date.now(),
       startedAt: new Date(isNaN(ts) ? Date.now() : ts).toISOString(),
       label: autoTitle,
       messages: msgs,
+      // Un-acted Confirm cards travel with the conversation (plus the acted-signature
+      // set that keeps re-suggestions deduped), so resuming restores them instead of
+      // silently dropping e.g. a calendar handoff the user never got to tap.
+      pending,
+      actedSigs,
     }, ...prev].slice(0, 30));
   };
 
@@ -1380,7 +1395,18 @@ export default function Ankora() {
     setSessions(prev => prev.filter(s => s.id !== sess.id));
     setMessages(sess.messages || []);
     setStarted(true); setPastExpanded(true);
-    setPending([]); actedSigsRef.current = new Set();
+    // Restore the cards the user never confirmed/skipped, dropping ones whose
+    // target task/item was finished or deleted while the conversation sat in
+    // history (same staleness rules as the merge in sendMessage).
+    setPending((Array.isArray(sess.pending) ? sess.pending : []).filter(c => {
+      if (["complete","delete","move","nextstep","replace"].includes(c.type)) {
+        const target = tasks.find(t => t.id === c.targetId);
+        if (!target || (c.type !== "replace" && target.done)) return false;
+      }
+      if (c.type === "grocery-remove" && !grocery.some(g => g.id === c.targetId)) return false;
+      return true;
+    }));
+    actedSigsRef.current = new Set(sess.actedSigs || []);
     setLastActivity(Date.now());
     setViewingSession(null); setShowHistory(false); setTab("chat");
   };
@@ -1425,15 +1451,24 @@ export default function Ankora() {
       }
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
       const { clean, suggestions } = parseSuggestions(raw);
-      setMessages([...next, { role: "assistant", content: clean, id: "a"+Date.now() }]);
       // Some suggestions apply silently, with no confirmation chip: durable memories,
       // plus low-stakes captures (new grocery items + reminders) so Ankora saying
       // "added it / I'll ping you" is literally true the moment she says it. Board
       // tasks and calendar handoffs still wait for a Confirm tap — curating the board
       // matters, and calendar opens an external app that needs a deliberate tap.
       const AUTO_APPLY = new Set(["remember", "grocery", "grocery-replace", "grocery-remove", "reminder"]);
+      // A timer the user literally asked to start ("yes, start the timer", "set a
+      // 10 min timer") starts now — the ask was the consent, and the model replies
+      // "Go" as if it's already running. Unsolicited timer offers stay behind a card.
+      const askedForTimer = /\b(start|set|run|begin|do)\b[\s\S]{0,40}?\btimers?\b/i.test(userText)
+        && !/\b(don'?t|do not|no|stop|cancel|skip|without)\b[\s\S]{0,40}?\btimers?\b/i.test(userText);
+      if (askedForTimer) AUTO_APPLY.add("timer");
       const autos = suggestions.filter(s => AUTO_APPLY.has(s.type));
       const chips = suggestions.filter(s => !AUTO_APPLY.has(s.type));
+      // A reply that's 100% suggestion payload parses down to empty text, which
+      // renders (and saves) as a bare gray bubble. Stand in a short line instead.
+      const content = clean || (chips.length ? "Here you go. One tap below to confirm." : "Done, taken care of.");
+      setMessages([...next, { role: "assistant", content, id: "a"+Date.now() }]);
       let saved = 0;
       // A re-suggested reminder auto-applies into a duplicate ping, and the model
       // rephrases them ("Bring up Ankora GTM launch progress" -> "Bring up Ankora
@@ -1453,6 +1488,13 @@ export default function Ankora() {
       // duplicate. Track normalized texts of what's on the list (and what this
       // batch applies) and skip adds that already exist.
       const normG = (t) => String(t||"").toLowerCase().replace(/[^\w\s]/g," ").replace(/\s+/g," ").trim();
+      // Two items are "the same" only when their words match after dropping
+      // quantity/packaging tokens — "spinach 2 bags" is still spinach, but "oat
+      // milk" is NOT "milk". A plain substring check used to swallow genuinely
+      // different products while the reply still claimed they were added.
+      const QTY_WORDS = new Set(["bag","pack","box","bottle","can","jar","carton","case","dozen","lb","lbs","oz","kg","g","l","ml","ct","count","x"]);
+      const coreG = (t) => new Set(normG(t).split(" ").filter(w => w && !/\d/.test(w)).map(w => w.replace(/e?s$/,"")).filter(w => w && !QTY_WORDS.has(w)));
+      const sameItem = (a, b) => { const ca = coreG(a), cb = coreG(b); return ca.size > 0 && ca.size === cb.size && [...ca].every(w => cb.has(w)); };
       const groceryNorms = new Set(grocery.filter(g => !g.checked).map(g => normG(g.text)));
       autos.forEach(s => {
         if (s.type === "remember") { if (addMemory(s.text)) saved++; return; }
@@ -1470,9 +1512,8 @@ export default function Ankora() {
         }
         if (s.type === "grocery-remove" && !grocery.some(g => g.id === s.targetId)) return;  // stale/hallucinated id — nothing to remove
         if (s.type === "grocery") {
-          const n = normG(s.text);
-          if ([...groceryNorms].some(e => e === n || e.includes(n) || n.includes(e))) return;  // already on the list (maybe with a quantity)
-          groceryNorms.add(n);
+          if ([...groceryNorms].some(e => sameItem(e, s.text))) return;  // already on the list (maybe as a quantity/packaging variant)
+          groceryNorms.add(normG(s.text));
         }
         if (s.type === "grocery-replace") groceryNorms.add(normG(s.text));  // the swap's new text now "exists" for this batch
         confirm(s);   // apply grocery/reminder now (shows its own toast + marks it acted)
