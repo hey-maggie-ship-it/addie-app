@@ -8,6 +8,12 @@
       "port": 5173
     },
     {
+      "name": "dev-live",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-Command", "$env:VITE_API_PROXY='https://app.ankorahq.com'; npm run dev"],
+      "port": 5173
+    },
+    {
       "name": "landing",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["-y", "serve", "landing", "-l", "4321"],

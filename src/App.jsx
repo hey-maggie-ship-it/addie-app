@@ -196,6 +196,8 @@ Right now it is ${fmtClock(now)} (${tzName}; current local datetime ${localIso})
 
 Be DECISIVE when someone needs an answer or is ready to act — give your best take in one shot rather than dragging a question across many turns. One clarifying question is fine; three is too many.
 
+CAPTURE MODE — when they're dumping, catch, don't coach. When the user is firing off short fragments, terse bullets, or a rapid list ("email about garciamercado", "perez matters", "call lawson", several quick messages in a row), they are BRAINDUMPING: getting things out of their head before they're lost, often under time pressure. This is NOT the moment for clarifying questions, slot math, prioritization, or coaching. In capture mode: (1) capture EVERY item immediately in the SAME reply — emit a suggestion for each one, using week as the default bucket unless they said it's for today; (2) ask ZERO clarifying questions — a slightly vague task text they can refine later beats losing the item; take their words as the task text; (3) keep your prose to one short line that names what landed ("Got all 4 on your board: …"); (4) do NOT negotiate what fits today or ask them to choose between items. Stay in capture mode as long as fragments keep coming. Only after the dump clearly ends (they slow down, ask a question, or say they're done) may you offer — once, briefly — to help sort or break things down. Losing an item they told you is the single worst failure here.
+
 But READ THE MOMENT — decisiveness is not the same as being blunt or transactional. When someone is struggling, venting, frustrated, or overwhelmed, slow down and meet them there first: acknowledge how it feels, dig a little deeper to understand what's really going on, and normalize it ("this is really common — a lot of people hit exactly this wall"). Then, when they're ready, help break it into a small, manageable next step. The empathy and the decisiveness work together: understand first, then point the way. Don't rush a struggling person toward a solution before they feel heard, and don't over-explain to someone who just wants a quick answer.
 
 LIVE DATE & TIME: You know the current local date AND clock time (stated at the top). You can and MUST compute any relative date or time yourself from them — "tomorrow," "this Friday," "next Monday," "in 3 days," "next week," "end of the month," "in 2 minutes," "in an hour," "this afternoon," "tonight." NEVER say or imply you don't know the current time or date, and never ask the user what it is — you have everything needed to work it out. When emitting a calendar event or reminder, resolve it to a concrete datetime by anchoring on the current local datetime stated above (e.g. "in 2 minutes" = that datetime plus two minutes).
@@ -203,7 +205,7 @@ LIVE DATE & TIME: You know the current local date AND clock time (stated at the 
 NEVER guess external facts you don't know — store hours, prices, someone else's appointment time, a venue's address. (This is different from the current clock time and relative dates, which you DO know and CAN compute from the values stated above.) "Memorial Day" is the last Monday of May; "July 4th" is July 4th; never substitute one for another. If an external fact isn't stated and you can't derive it, ask rather than fabricate.
 
 CURRENT TASK MEMORY:
-Today (max 3): ${today.length ? today.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}${ageTag(t)}`).join(", ") : "empty"}
+Today (soft cap ${MAX_TODAY}): ${today.length ? today.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}${ageTag(t)}`).join(", ") : "empty"}
 This week: ${week.length ? week.map(t=>`"${t.text}" [id:${t.id}]${t.nextStep?` [next:"${t.nextStep}"]`:""}${ageTag(t)}`).join(", ") : "empty"}
 Parked: ${parked.length ? parked.map(t=>`"${t.text}" [id:${t.id}]${ageTag(t)}`).join(", ") : "empty"}
 Done today: ${done.length ? done.map(t=>`"${t.text}"`).join(", ") : "none"}
@@ -212,7 +214,7 @@ TASKS WITH PENDING NEXT STEPS:
 ${withNext.length ? withNext.map(t=>`- "${t.text}" → next: "${t.nextStep}" [id:${t.id}]`).join("\n") : "none"}
 
 GROCERY: ${gItems.length ? gItems.map(g=>`"${g.text}"${g.store?` (from ${g.store})`:""} [id:${g.id}]`).join(", ") : "Empty"}
-SLOT COUNT (authoritative): Today has ${today.length} of ${MAX_TODAY} task slots filled, leaving ${Math.max(0, MAX_TODAY-today.length)} open${today.length>=MAX_TODAY?" (Today is FULL)":""}. If the user asks how many slots are left, state exactly this open number. Do NOT recompute or estimate it yourself, and do not contradict it.
+SLOT COUNT (authoritative): Today has ${today.length} task${today.length===1?"":"s"}; the recommended focus size is ${MAX_TODAY}${today.length>=MAX_TODAY?" (at/over the recommended size)":` (${MAX_TODAY-today.length} below it)`}. If the user asks how many are on Today, state exactly this count — do NOT recompute or estimate it yourself. THE CAP IS SOFT: ${MAX_TODAY} is a focus default, NOT a rule. If the user says tasks are for today, wants more room, or has a genuinely heavy day, put them in today WITHOUT pushback, negotiation, or asking them to drop something. You may note ONCE, briefly, that a shorter list is easier to finish — then respect their call. NEVER refuse, NEVER force a trade ("which one do you want to drop"), NEVER reroute their today items to week against their word.
 
 COMPLETING TASKS (be conservative): Only emit type:complete for a board task when the user EXPLICITLY said THAT specific task is finished, in their own words, in this conversation ("done with the expense report," "submitted it," "picked up the prescriptions"). When they clearly say it, mark it done via the SUGGESTIONS block rather than only acknowledging in prose. Otherwise, do NOT complete it. Specifically: never infer completion from general life updates ("great day," "at the gym," "on a roll," "made progress"), from tasks you are telling them to keep working on or do next, or from tasks still listed as upcoming. Your SUGGESTIONS must never contradict your own prose: if you describe a task as in progress, upcoming, "stay on this," or "next," you must NOT also emit type:complete for it. If you are unsure whether they truly finished a specific task, leave it undone and do not suggest completing it. A missed complete is one quick tap for them; a wrong one erases progress they didn't finish.
 
@@ -238,7 +240,7 @@ OFFER YOUR TOOLS PROACTIVELY: Most people don't know everything you can do, so s
 
 RESURFACING STALE TASKS: A task tagged [sitting Nd] has been on the board that many days without getting done. When the moment fits (a check-in, planning, or a natural lull, never mid-crisis), gently resurface ONE stale task and ask if it's still relevant and worth keeping. If they say it's already done, use type:complete. If it no longer matters, offer to clear it with type:delete. If it matters but not now, offer type:move to park it. Raise one at a time, never dump the whole stale list, and never nag.
 
-SAYING WHAT YOU DID (be accurate): Grocery adds, updates, and removals, plus reminders, take effect immediately when you emit them, so it is true to say "added that to your list," "removed those," or "I'll ping you then." For removals/updates you MUST copy the exact [id] from the GROCERY list above — a wrong id edits the wrong item. But board tasks and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's on your board," "confirm below and it goes on your calendar." Never say a task is added or an event is scheduled while it's still a pending card. Timers: when the user themselves asked to start or set a timer, it starts the moment you reply, so "Go, 15 minutes on the clock" is true. When YOU are offering a timer they didn't ask for, it appears as a card they must tap, so invite the tap ("hit Start below") instead of claiming it's running. Because grocery items and reminders apply silently with NO visible card, you MUST name them in your reply so the user knows exactly what was added — when adding several (e.g. recipe ingredients), list them out briefly ("Added: ground beef, taco seasoning, rice, lettuce, tomato, cheese"). Never trail off with a colon and nothing after it. If the user then swaps, removes, or edits any of them, update the actual list with type:grocery-replace / type:grocery-remove — don't just acknowledge in prose.
+SAYING WHAT YOU DID (be accurate): Grocery adds, updates, and removals, reminders, and NEW board tasks (type:task) take effect immediately when you emit them, so it is true to say "added that to your list," "that's on your board," or "I'll ping you then." Because new tasks apply silently with no card, ALWAYS name what you added ("Added to this week: email Perez, fix the spreadsheet") so the user can catch a wrong guess and swipe it away. For removals/updates you MUST copy the exact [id] from the lists above — a wrong id edits the wrong item. But CHANGES to existing tasks (complete, delete, move, replace, nextstep) and calendar events do NOT happen until the user taps Confirm on the card. For those, invite the tap instead of claiming it's done: "tap to confirm and it's marked done," "confirm below and it goes on your calendar." Never say an existing task was changed or an event is scheduled while it's still a pending card. Timers: when the user themselves asked to start or set a timer, it starts the moment you reply, so "Go, 15 minutes on the clock" is true. When YOU are offering a timer they didn't ask for, it appears as a card they must tap, so invite the tap ("hit Start below") instead of claiming it's running. Because grocery items and reminders apply silently with NO visible card, you MUST name them in your reply so the user knows exactly what was added — when adding several (e.g. recipe ingredients), list them out briefly ("Added: ground beef, taco seasoning, rice, lettuce, tomato, cheese"). Never trail off with a colon and nothing after it. If the user then swaps, removes, or edits any of them, update the actual list with type:grocery-replace / type:grocery-remove — don't just acknowledge in prose.
 
 SUGGESTION FORMAT:
 
@@ -262,7 +264,7 @@ SUGGESTIONS:
 - type:timer | minutes:15 | label:"what the timer is for"
 - type:remember | "one short durable fact about the user"
 
-Rules: Before emitting any suggestion, CHECK CURRENT TASK MEMORY, GROCERY, and Done today above. Never re-suggest adding a task or grocery item that's already listed there, and never suggest type:complete for something already in Done today — those actions are already taken. When the user is picking a conversation back up later, assume the suggestions you offered earlier were acted on; don't re-offer the same add/complete/reminder/calendar event again unless they ask. NEVER re-emit a type:calendar for an event you already offered in this conversation, even if the topic comes up again. Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. If Today is full, suggest week. Omit the entire SUGGESTIONS block if nothing to add. When the user is just chatting, venting, acknowledging, or thanking you (not asking for or describing a concrete action), emit NO suggestions at all — a warm reply with no cards is the right response. Board-changing suggestions (task/move/complete/delete/replace) must trace to something the user actually asked for or did, never to your own urge to tidy the board.
+Rules: Before emitting any suggestion, CHECK CURRENT TASK MEMORY, GROCERY, and Done today above. Never re-suggest adding a task or grocery item that's already listed there, and never suggest type:complete for something already in Done today — those actions are already taken. When the user is picking a conversation back up later, assume the suggestions you offered earlier were acted on; don't re-offer the same add/complete/reminder/calendar event again unless they ask. NEVER re-emit a type:calendar for an event you already offered in this conversation, even if the topic comes up again. Emit AS MANY suggestions as the conversation genuinely calls for — there is no fixed limit. If the user lists six things to add, emit six. If they ask for three calendar events, emit three. Don't pad with suggestions they didn't ask for, and don't artificially trim ones they did. Never use type:replace/grocery-replace if the new text is the same as or nearly identical to the existing item. When Today is at or past its soft cap, default NEW tasks to week — but if the user says something is for today or wants more on today, use bucket:today; their word beats the cap. Omit the entire SUGGESTIONS block if nothing to add. When the user is just chatting, venting, acknowledging, or thanking you (not asking for or describing a concrete action), emit NO suggestions at all — a warm reply with no cards is the right response. Board-changing suggestions (task/move/complete/delete/replace) must trace to something the user actually asked for or did, never to your own urge to tidy the board.
 
 ADVICE MODE: Sometimes the user just wants to think something through. Engage substantively, give ADHD-aware advice, don't pivot to tasks unless something concrete genuinely emerges.
 
@@ -311,9 +313,11 @@ export default function Ankora() {
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [authMode, setAuthMode] = useState("code");        // "code" | "password" — sign-in method on the login screen
   const [authPassword, setAuthPassword] = useState("");    // password entered on the login screen
-  const [newPassword, setNewPassword] = useState("");      // set/change password from Settings
+  const [newPassword, setNewPassword] = useState("");      // set/change password (Settings + post-OTP offer)
+  const [newPassword2, setNewPassword2] = useState("");     // repeat field, must match before saving
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState("");
+  const [pwOffer, setPwOffer] = useState(false);            // one-time "set a password?" screen after OTP sign-in
   const [subscription, setSubscription] = useState(null); // null=unknown, 'free', 'active'
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [capIntroSeen, setCapIntroSeen] = useState(() => { try { return localStorage.getItem("addie-cap-intro-seen") === "1"; } catch { return true; } });
@@ -848,10 +852,13 @@ export default function Ankora() {
     const code = otpCode.trim();
     if (!email || code.length !== 6 || otpVerifying) return;
     setOtpVerifying(true); setAuthError("");
-    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+    const { data, error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
     setOtpVerifying(false);
     if (error) setAuthError("Code didn't work — double-check it or request a new one.");
-    // On success, onAuthStateChange fires and sets session automatically.
+    // On success, onAuthStateChange fires and sets session automatically. If this
+    // account has never set a password, offer (once per sign-in) to add one so
+    // next time is one tap — skippable, codes keep working either way.
+    else if (!data?.user?.user_metadata?.has_password) setPwOffer(true);
   };
 
   const passwordSignIn = async () => {
@@ -864,14 +871,21 @@ export default function Ankora() {
     // On success, onAuthStateChange fires and sets the session automatically.
   };
 
-  // Set/change the account password from Settings. Saves immediately (separate from profile Save).
+  // Set/change the account password (Settings + post-OTP offer screen). Saves
+  // immediately (separate from profile Save). has_password in user metadata is
+  // what tells the post-OTP offer screen not to show again.
   const saveNewPassword = async () => {
     if (newPassword.length < 8 || pwBusy) return;
+    if (newPassword !== newPassword2) { setPwMsg("Those passwords don't match — give them another look."); return; }
     setPwBusy(true); setPwMsg("");
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await supabase.auth.updateUser({ password: newPassword, data: { has_password: true } });
     setPwBusy(false);
     if (error) setPwMsg(error.message);
-    else { setNewPassword(""); setPwMsg("Password saved — you can use it to sign in next time."); }
+    else {
+      setNewPassword(""); setNewPassword2("");
+      setPwMsg("Password saved — you can use it to sign in next time.");
+      if (pwOffer) { setPwOffer(false); showToast("Password saved — next sign-in is one tap"); }
+    }
   };
 
   const signOut = async () => {
@@ -886,6 +900,7 @@ export default function Ankora() {
     setMessages([]); setSessions([]); setStarted(false); setPastExpanded(false); setPending([]);
     setAuthSent(false); setAuthEmail(""); setOtpCode("");
     setAuthMode("code"); setAuthPassword(""); actedSigsRef.current = new Set();
+    setPwOffer(false); setNewPassword(""); setNewPassword2(""); setPwMsg("");
   };
 
   // Re-read the user's subscription status from Supabase (written by the Stripe
@@ -1452,11 +1467,14 @@ export default function Ankora() {
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
       const { clean, suggestions } = parseSuggestions(raw);
       // Some suggestions apply silently, with no confirmation chip: durable memories,
-      // plus low-stakes captures (new grocery items + reminders) so Ankora saying
-      // "added it / I'll ping you" is literally true the moment she says it. Board
-      // tasks and calendar handoffs still wait for a Confirm tap — curating the board
-      // matters, and calendar opens an external app that needs a deliberate tap.
-      const AUTO_APPLY = new Set(["remember", "grocery", "grocery-replace", "grocery-remove", "reminder"]);
+      // plus low-stakes captures (new grocery items, reminders, and NEW board
+      // tasks) so Ankora saying "added it / I'll ping you" is literally true the
+      // moment she says it. A wrongly captured task is one swipe to delete; a
+      // task lost behind an unnoticed Confirm chip is how we churned a user.
+      // Changes to EXISTING items (complete/delete/move/replace/nextstep) and
+      // calendar handoffs still wait for a Confirm tap — those mutate or erase
+      // things the user already curated, and calendar opens an external app.
+      const AUTO_APPLY = new Set(["remember", "grocery", "grocery-replace", "grocery-remove", "reminder", "task"]);
       // A timer the user literally asked to start ("yes, start the timer", "set a
       // 10 min timer") starts now — the ask was the consent, and the model replies
       // "Go" as if it's already running. Unsolicited timer offers stay behind a card.
@@ -1509,6 +1527,17 @@ export default function Ankora() {
             if (toMin(dup.when) === toMin(s.when)) return;
             cancelReminder(dup.id);
           }
+        }
+        if (s.type === "task") {
+          // Don't auto-add a near-duplicate of an open task (the model re-suggests
+          // existing work, and auto-apply would silently double the board).
+          const dup = tasks.some(t => {
+            if (t.done) return false;
+            const a = remTokens(s.text), b = remTokens(t.text);
+            if (!a.size || !b.size) return false;
+            return [...a].filter(w => b.has(w)).length / Math.min(a.size, b.size) >= 0.7;
+          });
+          if (dup) return;
         }
         if (s.type === "grocery-remove" && !grocery.some(g => g.id === s.targetId)) return;  // stale/hallucinated id — nothing to remove
         if (s.type === "grocery") {
@@ -1575,7 +1604,7 @@ export default function Ankora() {
     else if (s.type === "replace") {
       const exists = tasks.some(t => t.id === s.targetId);
       if (exists) { setTasks(p => p.map(t => t.id===s.targetId ? {...t, text:s.text, nextStep:s.nextStep||t.nextStep} : t)); showToast("Task updated"); }
-      else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = n>=MAX_TODAY?"week":"today"; setTasks(p => [...p, {id:genId("t"), text:s.text, bucket:b, nextStep:s.nextStep||"", done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
+      else { setTasks(p => [...p, {id:genId("t"), text:s.text, bucket:"today", nextStep:s.nextStep||"", done:false}]); showToast(`Added to ${BUCKET_STYLE.today.label}`); }
     }
     else if (s.type === "nextstep") { setTasks(p => p.map(t => t.id===s.targetId ? {...t, nextStep:s.text} : t)); showToast("Next step saved"); }
     else if (s.type === "complete") {
@@ -1589,10 +1618,9 @@ export default function Ankora() {
       showToast(`Removed: ${t?.text || "task"}`);
     }
     else if (s.type === "move") {
-      const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length;
-      const b = s.bucket==="today" && n>=MAX_TODAY ? "week" : s.bucket;
-      setTasks(p => p.map(t => t.id===s.targetId ? {...t, bucket:b} : t));
-      showToast(b!==s.bucket ? `Today's full — moved to ${BUCKET_STYLE[b].label}` : `Moved to ${BUCKET_STYLE[b].label}`);
+      // MAX_TODAY is a soft default — if the user confirmed a move to today, honor it.
+      setTasks(p => p.map(t => t.id===s.targetId ? {...t, bucket:s.bucket} : t));
+      showToast(`Moved to ${BUCKET_STYLE[s.bucket].label}`);
     }
     else if (s.type === "timer") { startTimer(s.minutes, s.label); }
     else if (s.type === "calendar") {
@@ -1605,7 +1633,7 @@ export default function Ankora() {
     }
     else if (s.type === "reminder") { scheduleReminder(s.text, s.when); }
     else if (s.type === "remember") { addMemory(s.text); }
-    else { const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length; const b = s.bucket==="today"&&n>=MAX_TODAY?"week":s.bucket; setTasks(p => [...p, {id:genId("t"), text:s.text, bucket:b, done:false}]); showToast(`Added to ${BUCKET_STYLE[b].label}`); }
+    else { setTasks(p => [...p, {id:genId("t"), text:s.text, bucket:s.bucket, done:false}]); showToast(`Added to ${BUCKET_STYLE[s.bucket].label}`); }
     actedSigsRef.current.add(suggestionSig(s));   // remember it so a re-suggestion doesn't reappear
     setPending(p => p.filter(x => x.id !== s.id));
   };
@@ -1622,10 +1650,8 @@ export default function Ankora() {
   const cancelEdit = () => { setEditingId(null); setEditText(""); };
   const addManualTask = () => {
     if (!newTask.trim()) return;
-    const n = tasks.filter(t=>t.bucket==="today"&&!t.done).length;
-    const b = newBucket==="today"&&n>=MAX_TODAY?"week":newBucket;
-    setTasks(p => [...p, {id:genId("t"), text:newTask.trim(), bucket:b, done:false}]);
-    setNewTask(""); showToast(`Added to ${BUCKET_STYLE[b].label}`);
+    setTasks(p => [...p, {id:genId("t"), text:newTask.trim(), bucket:newBucket, done:false}]);
+    setNewTask(""); showToast(`Added to ${BUCKET_STYLE[newBucket].label}`);
   };
   const addGroceryItem = () => {
     if (!newGrocery.trim()) return;
@@ -1779,7 +1805,7 @@ export default function Ankora() {
               { label:"Edit", fn:() => startEdit(task) },
               { label:"Start 15-min timer", fn:() => startTimer(15, task.text) },
               { label:"Start 25-min timer", fn:() => startTimer(25, task.text) },
-              ...(task.bucket!=="today" ? [{ label: todayTasks.length<MAX_TODAY ? "Move to Today" : "Move to Today (full)", fn:() => moveTask(task.id,"today"), disabled: todayTasks.length>=MAX_TODAY }] : []),
+              ...(task.bucket!=="today" ? [{ label: "Move to Today", fn:() => moveTask(task.id,"today") }] : []),
               ...(task.bucket!=="week"   ? [{ label:"Move to This week", fn:() => moveTask(task.id,"week") }] : []),
               ...(task.bucket!=="parked" ? [{ label:"Park it", fn:() => moveTask(task.id,"parked") }] : []),
               { label:"Delete", fn:() => deleteTask(task.id), danger:true },
@@ -1919,6 +1945,41 @@ export default function Ankora() {
       </div>
     </div>
   );
+
+  // ── Signed in via OTP, no password yet → one-time skippable offer ──
+  if (pwOffer) {
+    const pwReady = newPassword.length >= 8 && newPassword === newPassword2;
+    const pwMismatch = newPassword2.length > 0 && newPassword !== newPassword2;
+    return (
+      <div style={{ display:"flex", flexDirection:"column", height:"100svh", maxWidth:720, margin:"0 auto", fontFamily:"system-ui,-apple-system,sans-serif", backgroundColor:C.bg }}>
+        <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"center", padding:"24px 26px", maxWidth:380, width:"100%", margin:"0 auto", boxSizing:"border-box" }}>
+          <div style={{ marginBottom:24 }}>
+            <img src="/logo.svg" alt="" style={{ width:36, height:35, marginBottom:14 }} />
+            <h2 style={{ margin:"0 0 8px", fontSize:24, fontWeight:800, color:C.text }}>Skip the code next time?</h2>
+            <p style={{ margin:0, fontSize:14, color:C.text2, lineHeight:1.5 }}>Add a password and future sign-ins are one tap. You can always use an emailed code instead — this is optional.</p>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <input type="password" autoComplete="new-password" value={newPassword}
+              onChange={e => { setNewPassword(e.target.value); setPwMsg(""); }}
+              placeholder="Password (8+ characters)" style={fieldStyle} />
+            <input type="password" autoComplete="new-password" value={newPassword2}
+              onChange={e => { setNewPassword2(e.target.value); setPwMsg(""); }}
+              onKeyDown={e => e.key === "Enter" && pwReady && saveNewPassword()}
+              placeholder="Repeat password" style={fieldStyle} />
+            {pwMismatch && <p style={{ margin:0, fontSize:12.5, color:C.danger }}>Those don't match yet.</p>}
+            {pwMsg && !pwMsg.includes("saved") && <p style={{ margin:0, fontSize:12.5, color:C.danger }}>{pwMsg}</p>}
+            <span role="button" onClick={() => pwReady && !pwBusy && saveNewPassword()}
+              style={{ textAlign:"center", fontSize:15, fontWeight:700, color:"#fff", backgroundColor:(pwBusy||!pwReady)?C.text3:C.blue, borderRadius:12, padding:"14px 0", cursor:(pwBusy||!pwReady)?"default":"pointer" }}>
+              {pwBusy ? "Saving…" : "Save password"}
+            </span>
+            <span role="button" onClick={() => { setPwOffer(false); setNewPassword(""); setNewPassword2(""); setPwMsg(""); }}
+              style={{ textAlign:"center", fontSize:13.5, color:C.blueText, cursor:"pointer", fontWeight:600 }}>Skip for now</span>
+            <p style={{ margin:"6px 0 0", fontSize:11.5, color:C.text3, lineHeight:1.5, textAlign:"center" }}>You can also set one later in Preferences.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!hydrated || !cloudLoaded) return loadingScreen("Loading your space…");
 
@@ -2146,15 +2207,22 @@ export default function Ankora() {
             <div style={{ marginTop:28, paddingTop:22, borderTop:`1.5px solid ${C.borderLt}` }}>
               <p style={{ margin:"0 0 4px", fontSize:14, fontWeight:600, color:C.text }}>Password</p>
               <p style={{ margin:"0 0 12px", fontSize:12.5, color:C.text2, lineHeight:1.5 }}>Set a password to sign in without waiting for an emailed code. You can still use a code anytime.</p>
-              <div style={{ display:"flex", gap:8 }}>
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
                 <input type="password" autoComplete="new-password" value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") saveNewPassword(); }}
+                  onChange={e => { setNewPassword(e.target.value); setPwMsg(""); }}
                   placeholder="New password (8+ characters)"
-                  style={{ flex:1, fontSize:13.5, padding:"9px 12px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, outline:"none" }} />
-                <span role="button" onClick={saveNewPassword}
-                  style={{ fontSize:13.5, fontWeight:700, color:newPassword.length>=8?"#fff":C.text3, backgroundColor:newPassword.length>=8?C.blue:C.bg2, border:newPassword.length>=8?"none":`1.5px solid ${C.borderLt}`, borderRadius:10, padding:"9px 15px", cursor:newPassword.length>=8?"pointer":"default", flexShrink:0 }}>{pwBusy ? "Saving…" : "Save"}</span>
+                  style={{ fontSize:13.5, padding:"9px 12px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, outline:"none" }} />
+                <div style={{ display:"flex", gap:8 }}>
+                  <input type="password" autoComplete="new-password" value={newPassword2}
+                    onChange={e => { setNewPassword2(e.target.value); setPwMsg(""); }}
+                    onKeyDown={e => { if (e.key === "Enter") saveNewPassword(); }}
+                    placeholder="Repeat password"
+                    style={{ flex:1, fontSize:13.5, padding:"9px 12px", borderRadius:10, border:`1.5px solid ${C.border}`, backgroundColor:C.bg, color:C.text, outline:"none" }} />
+                  <span role="button" onClick={saveNewPassword}
+                    style={{ fontSize:13.5, fontWeight:700, color:(newPassword.length>=8&&newPassword===newPassword2)?"#fff":C.text3, backgroundColor:(newPassword.length>=8&&newPassword===newPassword2)?C.blue:C.bg2, border:(newPassword.length>=8&&newPassword===newPassword2)?"none":`1.5px solid ${C.borderLt}`, borderRadius:10, padding:"9px 15px", cursor:(newPassword.length>=8&&newPassword===newPassword2)?"pointer":"default", flexShrink:0 }}>{pwBusy ? "Saving…" : "Save"}</span>
+                </div>
               </div>
+              {newPassword2.length>0 && newPassword!==newPassword2 && <p style={{ margin:"8px 0 0", fontSize:12, color:C.danger, lineHeight:1.4 }}>Those don't match yet.</p>}
               {pwMsg && <p style={{ margin:"8px 0 0", fontSize:12, color:pwMsg.includes("saved")?C.greenText:C.danger, lineHeight:1.4 }}>{pwMsg}</p>}
             </div>
             <div style={{ marginTop:22, paddingTop:18, borderTop:`1.5px solid ${C.borderLt}` }}>
@@ -2522,8 +2590,12 @@ export default function Ankora() {
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"0 0 10px" }}>
                   <p style={{ fontSize:12.5, color:C.text2, margin:0, fontWeight:500 }}>Confirm?{pending.length>1 ? ` · ${pending.length}` : ""}</p>
                   {pending.length>1 && (
-                    <span onClick={() => setPending([])} role="button"
-                      style={{ fontSize:12.5, color:C.text2, cursor:"pointer", fontWeight:600 }}>Clear all</span>
+                    <span style={{ display:"flex", gap:14 }}>
+                      <span onClick={() => [...pending].forEach(confirm)} role="button"
+                        style={{ fontSize:12.5, color:C.blue, cursor:"pointer", fontWeight:600 }}>Confirm all</span>
+                      <span onClick={() => setPending([])} role="button"
+                        style={{ fontSize:12.5, color:C.text2, cursor:"pointer", fontWeight:600 }}>Clear all</span>
+                    </span>
                   )}
                 </div>
                 <div style={{ display:"flex", flexDirection:"column", gap:8 }}>

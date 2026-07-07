@@ -176,10 +176,11 @@
 
     /* DEMO SLIDER */
     .demo-stage { width: 100%; max-width: 380px; margin: 0 auto; }
-    .slides { position: relative; }
-    .slide { display: none; }
-    .slide.active { display: block; animation: slidefade 0.35s ease; }
-    @keyframes slidefade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    /* Stack all slides in one grid cell so the container keeps the tallest
+       slide's height — no layout jump below the slider when switching. */
+    .slides { display: grid; }
+    .slide { grid-area: 1 / 1; visibility: hidden; opacity: 0; transition: opacity 0.35s ease, visibility 0.35s; }
+    .slide.active { visibility: visible; opacity: 1; }
     .slide-cap { text-align: center; font-size: 13px; color: var(--white-40); margin-top: 16px; }
     .slider-controls { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 18px; }
     .slider-arrow {
