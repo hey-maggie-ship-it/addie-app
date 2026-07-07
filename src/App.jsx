@@ -77,10 +77,13 @@ const PROFILE_LABELS = {
   pattern: Object.fromEntries(ONBOARD_PATTERN.map(o => [o.value, o.label])),
 };
 
+// The user message the big "I'm stuck" hero button sends. The system prompt's
+// stuck ritual keys off the stuck/frozen/can't-start phrasing, not this exact string.
+const STUCK_PROMPT = "I'm stuck. Help me start.";
+
 const STARTERS = [
   { icon: "🌅", label: "Morning check-in", prompt: "Morning check-in" },
   { icon: "🧠", label: "Brain dump", prompt: "I need to brain dump everything on my mind." },
-  { icon: "🚧", label: "I'm stuck", prompt: "I've been staring at a task and can't start. Help." },
   { icon: "🌀", label: "I'm overwhelmed", prompt: "Everything feels urgent. I don't know where to begin." },
   { icon: "🎯", label: "Plan my day", prompt: "Help me plan my day." },
   { icon: "📅", label: "Add to calendar", prompt: "I want to put an event on my calendar." },
@@ -223,6 +226,10 @@ MOVING A TASK BETWEEN BUCKETS: When the user wants to move an existing task to a
 TASKS vs NEXT STEPS: A task on the board is the thing the user wants done (e.g. "Plan Q3 offsite"). A "next step" is the single concrete action that moves that task forward right now (e.g. "Email venue for availability"). When the user describes the immediate action for a task ALREADY on the board, attach it with type:nextstep to that task's id — do NOT create a brand-new task for it. Only use type:task when it's genuinely a new, separate thing not represented on the board. Before adding a task, check CURRENT TASK MEMORY above — if it's the same as or a sub-action of something already there, use nextstep instead.
 
 A focus timer exists. When someone's stuck starting something, casually offer time-boxing ("want to give this 15 minutes?"). When the user asks you to start a timer, include a type:timer suggestion in the SUGGESTIONS block.
+
+THE START RITUAL (when they're stuck): When the user says they're stuck, frozen, avoiding something, or can't start — including the exact message "${STUCK_PROMPT}" from the app's I'm-stuck button — run this short ritual instead of a generic pep talk or a plan. (1) Ask what they're avoiding. One question, then wait; skip it if they already said. (2) In one compact question, ask how much time they actually have and how their energy is. (3) Give exactly ONE physical first step sized to that time and energy — under 10 minutes, concrete and visible ("open the doc and type the section headers"), never a plan, never a list. (4) In the same reply as the step, offer to run a timer for it (type:timer) and to check on them when it ends. (5) The next step comes only after the first one is done — do not stack steps. During this ritual, never ask more than one question per reply, and keep replies to a few short lines. When something visibly gets this person moving, save the pattern with type:remember ("a 5-minute timer plus naming the first visible action gets them started").
+
+TIMER DEBRIEF (closing the loop): When a timer ends and the user reports back ("did it", "got partway", "couldn't start"), respond as a body double, not a judge. Any start is a real win — say so plainly. Got partway: ask for the single next physical action and offer another short timer. Couldn't start: zero shame, shrink the step until it feels almost silly, and offer 5 minutes together. Whatever happened, quietly capture what worked or didn't with type:remember (step size, wording, timer length) — this is how you learn to get THIS person moving.
 
 CALENDAR HANDOFF: When the user asks to schedule something or a specific date+time emerges, you MUST include a type:calendar suggestion in the SUGGESTIONS block. This is the ONLY way an event reaches their calendar — you cannot add it yourself. NEVER claim it's "done," "added," "scheduled," or "on your calendar" in prose without emitting the type:calendar line in the SAME reply; saying so without the suggestion is a broken promise to the user. If they asked for it, emit it now — don't wait to be asked twice. Only concrete date+time qualifies (not vague stuff like "later today"). Resolve relative dates to a concrete date and always use the correct current year (${new Date().getFullYear()} unless the user clearly means a different year).
 
@@ -2359,10 +2366,20 @@ export default function Ankora() {
         }}>
           <div style={{ fontSize:72, marginBottom:16, animation:"bounce 0.6s ease-in-out infinite alternate" }}>⏰</div>
           <h1 style={{ color:"#fff", fontSize:36, fontWeight:800, margin:"0 0 10px", textAlign:"center" }}>Time's up!</h1>
-          {timer?.label && <p style={{ color:"rgba(255,255,255,0.85)", fontSize:18, margin:"0 0 40px", textAlign:"center", maxWidth:280 }}>{timer.label}</p>}
-          <button onClick={dismissTimerAlert} style={{ fontSize:18, fontWeight:700, color:C.indigo, backgroundColor:"#fff", border:"none", borderRadius:16, padding:"16px 48px", cursor:"pointer", boxShadow:"0 4px 20px rgba(0,0,0,0.2)" }}>
-            Done
-          </button>
+          <p style={{ color:"rgba(255,255,255,0.85)", fontSize:18, margin:"0 0 32px", textAlign:"center", maxWidth:280 }}>{timer?.label || "How did it go?"}</p>
+          {/* Debrief quick-replies: the check-in half of the start ritual. Each
+              reports the outcome to Ankora so she can celebrate / shrink the step. */}
+          <div style={{ display:"flex", flexDirection:"column", gap:10, width:"min(280px, 80vw)" }}>
+            {[["🎉 Did it", "Timer's up — I did it."],
+              ["Got partway", "Timer's up — I got partway through."],
+              ["Couldn't start", "Timer's up and I couldn't get started."]].map(([label, msg]) => (
+              <button key={label} onClick={() => { dismissTimerAlert(); setTab("chat"); sendMessage(msg); }}
+                style={{ fontSize:16, fontWeight:700, color:C.indigo, backgroundColor:"#fff", border:"none", borderRadius:14, padding:"14px 0", cursor:"pointer", boxShadow:"0 4px 20px rgba(0,0,0,0.2)" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <span role="button" onClick={dismissTimerAlert} style={{ marginTop:22, fontSize:14, fontWeight:600, color:"rgba(255,255,255,0.75)", cursor:"pointer" }}>Dismiss</span>
         </div>
       )}
 
@@ -2494,6 +2511,20 @@ export default function Ankora() {
                 <div style={{ padding:"10px 0 18px" }}>
                   <h3 style={{ margin:"0 0 4px", fontSize:24, fontWeight:700, color:C.text }}>Hey, how's it going?</h3>
                   <p style={{ margin:0, fontSize:14, color:C.text2 }}>{((messages.length > 0 && !pastExpanded) || sessions.length > 0) ? "Pick up where you left off, or start something new below." : "Pick a starting point, or just tell me what's up."}</p>
+                  {(() => {
+                    const wins = tasks.filter(t => t.done && t.completedAt && (Date.now() - new Date(t.completedAt)) < 7 * 864e5).length;
+                    return wins > 0 ? <p style={{ margin:"6px 0 0", fontSize:13, fontWeight:600, color:C.accentText }}>🔥 {wins} task{wins === 1 ? "" : "s"} finished in the last 7 days</p> : null;
+                  })()}
+                </div>
+
+                {/* The wedge: one unmistakable way in when starting is the problem. */}
+                <div role="button" onClick={() => sendMessage(STUCK_PROMPT)}
+                  style={{ marginBottom:14, padding:"16px 18px", background:`linear-gradient(135deg, ${C.blue} 0%, #3D3268 100%)`, borderRadius:14, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, cursor:"pointer" }}>
+                  <div style={{ minWidth:0 }}>
+                    <p style={{ margin:"0 0 2px", fontSize:16, fontWeight:800, color:"#fff" }}>I'm stuck. Help me start.</p>
+                    <p style={{ margin:0, fontSize:12.5, color:"rgba(255,255,255,0.75)" }}>One tiny step, a timer, and company until you're moving.</p>
+                  </div>
+                  <span style={{ flexShrink:0, fontSize:13.5, fontWeight:700, color:"#fff", backgroundColor:C.accent, borderRadius:9, padding:"9px 16px" }}>Start</span>
                 </div>
                 {/* First-run: introduce what Ankora can do, so features aren't missed. Shown once. */}
                 {onboarded && !capIntroSeen && (

@@ -148,6 +148,12 @@
       border-radius: 18px; padding: 28px; transition: border-color 0.2s;
     }
     .feature-card:hover { border-color: rgba(224,120,72,0.3); }
+    .feature-icon {
+      width: 44px; height: 44px; border-radius: 12px; margin-bottom: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; line-height: 1;
+      background: rgba(224,120,72,0.12); border: 1px solid rgba(224,120,72,0.25);
+    }
     .feature-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
     .feature-card p { font-size: 14.5px; color: var(--white-70); line-height: 1.6; }
 
@@ -238,7 +244,11 @@
     .price-card {
       background: var(--navy-light); border: 1px solid rgba(255,255,255,0.07);
       border-radius: 22px; padding: 38px;
+      display: flex; flex-direction: column;
     }
+    /* Feature lists differ in length; pin both CTAs to the card bottom. */
+    .plan-features { flex: 1; }
+    .plan-cta { margin-top: auto; }
     .price-card.featured { border-color: var(--coral); position: relative; }
     .featured-badge {
       position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
@@ -346,14 +356,17 @@
 
   <div class="features-grid">
     <div class="feature-card">
+      <div class="feature-icon">🚀</div>
       <h3>Start</h3>
       <p>Name the thing you're avoiding. Get one step small enough to actually begin.</p>
     </div>
     <div class="feature-card">
+      <div class="feature-icon">⏱️</div>
       <h3>Stay with it</h3>
       <p>Timers, check-ins, and a nudge back on track when the day falls apart.</p>
     </div>
     <div class="feature-card">
+      <div class="feature-icon">⚓</div>
       <h3>Never lose the thread</h3>
       <p>Ankora remembers your tasks, your context, and how you work, so you never start from zero.</p>
     </div>

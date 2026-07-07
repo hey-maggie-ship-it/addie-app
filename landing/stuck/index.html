@@ -4,12 +4,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ankora - the AI that gets you through the first 10 minutes</title>
-  <meta name="description" content="When you're stuck, distracted, or overwhelmed, Ankora turns the pile in your head into one tiny step, starts the timer, and stays with you until you're moving. ADHD-friendly." />
+  <title>Ankora - built for ADHD brains, useful for anyone who gets stuck</title>
+  <meta name="description" content="An AI body double for task paralysis. Ankora turns the pile in your head into one tiny step, starts the timer, and stays with you until you're moving. Built for ADHD brains, useful for anyone who gets stuck." />
   <link rel="canonical" href="https://ankorahq.com/stuck/" />
   <meta name="robots" content="noindex" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="Ankora - the AI that gets you through the first 10 minutes" />
+  <meta property="og:title" content="Ankora - built for ADHD brains, useful for anyone who gets stuck" />
   <meta property="og:description" content="The AI that helps you start. Dump the overwhelm, get one clear next step, stay anchored." />
   <meta property="og:url" content="https://ankorahq.com/stuck/" />
   <!-- Versioned filename on purpose: link scrapers (iMessage, RCS, Slack, WhatsApp)
@@ -19,7 +19,7 @@
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Ankora - the AI that gets you through the first 10 minutes" />
+  <meta name="twitter:title" content="Ankora - built for ADHD brains, useful for anyone who gets stuck" />
   <meta name="twitter:description" content="The AI that helps you start. Dump the overwhelm, get one clear next step, stay anchored." />
   <meta name="twitter:image" content="https://ankorahq.com/og-image-v2.jpg" />
   <link rel="icon" href="/apple-touch-icon.png" />
@@ -148,6 +148,12 @@
       border-radius: 18px; padding: 28px; transition: border-color 0.2s;
     }
     .feature-card:hover { border-color: rgba(224,120,72,0.3); }
+    .feature-icon {
+      width: 44px; height: 44px; border-radius: 12px; margin-bottom: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; line-height: 1;
+      background: rgba(224,120,72,0.12); border: 1px solid rgba(224,120,72,0.25);
+    }
     .feature-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
     .feature-card p { font-size: 14.5px; color: var(--white-70); line-height: 1.6; }
 
@@ -238,7 +244,11 @@
     .price-card {
       background: var(--navy-light); border: 1px solid rgba(255,255,255,0.07);
       border-radius: 22px; padding: 38px;
+      display: flex; flex-direction: column;
     }
+    /* Feature lists differ in length; pin both CTAs to the card bottom. */
+    .plan-features { flex: 1; }
+    .plan-cta { margin-top: auto; }
     .price-card.featured { border-color: var(--coral); position: relative; }
     .featured-badge {
       position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
@@ -319,7 +329,7 @@
 
 <section class="hero">
   <div class="hero-badge">An AI body double for when you're stuck</div>
-  <h1>The AI that gets you through the first <em>10 minutes</em>.</h1>
+  <h1>Built for ADHD brains. Useful for anyone who gets <em>stuck</em>.</h1>
   <p class="hero-sub">When you're stuck, distracted, or overwhelmed, Ankora turns the pile in your head into one tiny step, starts the timer, and stays with you until you're moving.</p>
   <div class="hero-actions">
     <a href="https://app.ankorahq.com" class="btn-primary">Get started free <span class="arrow">&rarr;</span></a>
@@ -346,14 +356,17 @@
 
   <div class="features-grid">
     <div class="feature-card">
+      <div class="feature-icon">🚀</div>
       <h3>Start</h3>
       <p>Name the thing you're avoiding. Get one step small enough to actually begin.</p>
     </div>
     <div class="feature-card">
+      <div class="feature-icon">⏱️</div>
       <h3>Stay with it</h3>
       <p>Timers, check-ins, and a nudge back on track when the day falls apart.</p>
     </div>
     <div class="feature-card">
+      <div class="feature-icon">⚓</div>
       <h3>Never lose the thread</h3>
       <p>Ankora remembers your tasks, your context, and how you work, so you never start from zero.</p>
     </div>
