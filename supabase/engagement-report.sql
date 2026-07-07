@@ -1,6 +1,8 @@
 -- ──────────────────────────────────────────────────────────
--- Ankora engagement report: one row per user, most recently active first.
--- Read-only. Run any time: Supabase Dashboard → SQL Editor → paste → Run.
+-- Ankora engagement report VIEW: one row per user, always up to date.
+-- Run this ONCE: Supabase Dashboard → SQL Editor → paste → Run.
+-- Then browse it any time: Table Editor → engagement_report (under Views),
+-- or `select * from engagement_report;` — no need to keep this file around.
 --
 -- Sources: message_usage (chat messages/day), auth.users (signup, sign-ins),
 -- user_data (last board sync, list sizes), subscriptions (plan).
@@ -8,8 +10,12 @@
 -- Subscribers are metered too (since 2026-07-07, uncapped) so message
 -- columns cover everyone; earlier Pro usage, if any, wasn't recorded.
 -- Excludes maggielee0503@gmail.com (Maggie's own super-user/test login).
+--
+-- SECURITY: the view reads auth.users, and views in `public` are exposed
+-- through the API by default — the REVOKEs below make it dashboard-only.
 -- ──────────────────────────────────────────────────────────
 
+create or replace view public.engagement_report as
 with msg as (
   select
     user_id,
@@ -53,3 +59,7 @@ left join public.user_data d      on d.user_id = u.id
 left join public.subscriptions s  on s.user_id = u.id
 where u.email <> 'maggielee0503@gmail.com'
 order by last_active desc nulls last, signed_up desc;
+
+-- Dashboard-only: without these, anyone holding the public anon key could
+-- read every user's email and usage through the auto-generated REST API.
+revoke all on public.engagement_report from anon, authenticated;
