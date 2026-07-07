@@ -89,19 +89,19 @@ export default async function handler(req, res) {
     // ── Per-user daily rate limit (atomic + tamper-proof via SECURITY DEFINER RPC) ──
     // Fails OPEN if the metering function isn't installed yet, so deploying this
     // code before running supabase/metering.sql won't break chat.
-    if (!isSubscribed) {
-      const { data: usage, error: usageError } = await supabase.rpc("record_message", {
-        daily_limit: DAILY_LIMIT,
-        client_tz: typeof timeZone === "string" && timeZone ? timeZone : "UTC",
+    // Subscribers are metered too (usage data feeds the engagement report),
+    // but with an effectively unlimited cap so they can never be rejected.
+    const { data: usage, error: usageError } = await supabase.rpc("record_message", {
+      daily_limit: isSubscribed ? 1000000 : DAILY_LIMIT,
+      client_tz: typeof timeZone === "string" && timeZone ? timeZone : "UTC",
+    });
+    if (usageError) {
+      console.error("Usage metering unavailable (failing open):", usageError.message);
+    } else if (!isSubscribed && usage && usage.allowed === false) {
+      return res.status(429).json({
+        error: `You've used all ${usage.limit} of today's free messages.`,
+        upgrade: true,
       });
-      if (usageError) {
-        console.error("Usage metering unavailable (failing open):", usageError.message);
-      } else if (usage && usage.allowed === false) {
-        return res.status(429).json({
-          error: `You've used all ${usage.limit} of today's free messages.`,
-          upgrade: true,
-        });
-      }
     }
 
     const upstream = await fetch("https://api.anthropic.com/v1/messages", {

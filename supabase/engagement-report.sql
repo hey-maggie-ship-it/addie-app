@@ -5,9 +5,9 @@
 -- Sources: message_usage (chat messages/day), auth.users (signup, sign-ins),
 -- user_data (last board sync, list sizes), subscriptions (plan).
 --
--- CAVEAT: api/chat.js only calls record_message() for FREE users, so
--- message columns stop counting once someone subscribes. last_active
--- still works for subscribers via user_data.updated_at / last_sign_in_at.
+-- Subscribers are metered too (since 2026-07-07, uncapped) so message
+-- columns cover everyone; earlier Pro usage, if any, wasn't recorded.
+-- Excludes maggielee0503@gmail.com (Maggie's own super-user/test login).
 -- ──────────────────────────────────────────────────────────
 
 with msg as (
@@ -51,4 +51,5 @@ from auth.users u
 left join msg m                    on m.user_id = u.id
 left join public.user_data d      on d.user_id = u.id
 left join public.subscriptions s  on s.user_id = u.id
+where u.email <> 'maggielee0503@gmail.com'
 order by last_active desc nulls last, signed_up desc;
