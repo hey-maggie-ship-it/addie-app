@@ -57,7 +57,9 @@ from auth.users u
 left join msg m                    on m.user_id = u.id
 left join public.user_data d      on d.user_id = u.id
 left join public.subscriptions s  on s.user_id = u.id
+-- Excludes Maggie's own login plus any +alias test accounts of it.
 where u.email <> 'maggielee0503@gmail.com'
+  and u.email not like 'maggielee0503+%@gmail.com'
 order by last_active desc nulls last, signed_up desc;
 
 -- Dashboard-only: without these, anyone holding the public anon key could

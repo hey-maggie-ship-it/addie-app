@@ -1490,8 +1490,11 @@ export default function Ankora() {
       // is consent too — the model replies "Go" either way, so a card here reads
       // as a broken promise. Only counts right after an assistant turn that
       // mentioned a timer, and only for a plain short affirmative.
+      // The model words offers as "want another 15 minutes?" as often as "want a
+      // timer?", so a bare duration counts as a timer mention here. Auto-start
+      // still requires the model to actually emit type:timer in its reply.
       const lastAssistant = [...next].reverse().find(m => m.role === "assistant");
-      const acceptedTimerOffer = !!lastAssistant && /timer|time-?box|on the clock/i.test(lastAssistant.content)
+      const acceptedTimerOffer = !!lastAssistant && /timer|time-?box|on the clock|\b\d+\s*(more\s+)?min(ute)?s?\b/i.test(lastAssistant.content)
         && /^(y(es|ep|eah|up)?|ok(ay)?|sure|please|yes please|do it|go|go for it|let'?s (do it|go)|sounds good)\b[\s!.]*$/i.test(userText.trim());
       const askedForTimer = acceptedTimerOffer
         || (/\b(start|set|run|begin|do)\b[\s\S]{0,40}?\btimers?\b/i.test(userText)
