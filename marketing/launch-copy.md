@@ -54,14 +54,14 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 >
 > So I built Ankora: an AI thinking partner that turns a pile of "everything" into one clear next step, then keeps you moving with reminders, focus timers, and a memory of how you work. The structure I used to get from a company, in your pocket.
 >
-> Free, 10 messages a day; Pro is $5/mo. If you've made the jump from a structured role to your own thing, what helped you bridge that gap?
+> Free, 25 messages a day; Pro is $5/mo. If you've made the jump from a structured role to your own thing, what helped you bridge that gap?
 
 **Gallery (≈5 images to make):**
 1. Hero: "Start the thing you've been avoiding"
 2. Slider example 1: Q3 brain-dump to first-step chips (strongest, lead with it)
 3. Slider example 2: boring task into a 5-minute game
 4. Slider example 3 or 4: regroup-when-frozen, or grocery + reminder capture
-5. Pricing: Free $0 (10/day) vs Pro $5/mo
+5. Pricing: Free $0 (25/day) vs Pro $5/mo
 
 **Investor connect form (private, never shared publicly):**
 
@@ -78,7 +78,7 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 > What I understand that they don't: the bottleneck is activation, not organization. People don't need a better list, they need one small next step and someone staying with them while they do it. Ankora is AI-native with persistent memory of how you work, plus proactive follow-through: reminders, timers, check-ins. It compounds like a relationship, which is retention no static tool can copy.
 
 > **What's your revenue and/or growth rate?**
-> Launching publicly this week (Product Hunt plus community launch), so revenue is effectively day zero. Pricing is live: free tier at 10 messages a day, Pro at $5/mo. Happy to share early conversion and retention numbers as launch data comes in.
+> Launching publicly this week (Product Hunt plus community launch), so revenue is effectively day zero. Pricing is live: free tier at 25 messages a day, Pro at $5/mo. Happy to share early conversion and retention numbers as launch data comes in.
 
 > **Anything else you would like investors to know?**
 > Distribution is mapped and sequenced: my professional network first (a decade of DTC and ecommerce operators), then founder communities, then ADHD and mental-load communities with value-first content. The founder story resonates in every one of these channels because it's true.
@@ -144,7 +144,7 @@ Already deployed. Hero: "Start the thing you've been avoiding." Core pitch: "It 
 > No setup, no empty boxes, nothing new to maintain.
 
 **6/**
-> Free to start, 10 messages a day. Pro is $5/mo. Any device, no app store → ankorahq.com
+> Free to start, 25 messages a day. Pro is $5/mo. Any device, no app store → ankorahq.com
 
 **7/**
 > We're live on Product Hunt today too: https://www.producthunt.com/products/ankora?launch=ankora
