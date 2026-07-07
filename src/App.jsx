@@ -99,7 +99,9 @@ const TIMER_PRESETS = [10, 15, 25, 45];
 // Stable fingerprint of a suggestion chip. Used both to dedupe re-suggested cards
 // against what's already waiting AND to remember which cards the user already
 // confirmed/skipped, so an identical re-suggestion from the model doesn't reappear.
-const suggestionSig = (s) => `${s.type}|${s.targetId||""}|${s.text||s.title||""}|${s.when||""}|${s.minutes||""}`;
+// (Timers carry `label`, not text/title — without it every 15-min timer shared
+// one signature and the second timer of a conversation was silently swallowed.)
+const suggestionSig = (s) => `${s.type}|${s.targetId||""}|${s.text||s.title||s.label||""}|${s.when||""}|${s.minutes||""}`;
 
 // Collision-proof id: "g"+Date.now() alone produced DUPLICATE ids when several
 // items were created in the same millisecond (e.g. a recipe's worth of grocery
@@ -1484,8 +1486,16 @@ export default function Ankora() {
       // A timer the user literally asked to start ("yes, start the timer", "set a
       // 10 min timer") starts now — the ask was the consent, and the model replies
       // "Go" as if it's already running. Unsolicited timer offers stay behind a card.
-      const askedForTimer = /\b(start|set|run|begin|do)\b[\s\S]{0,40}?\btimers?\b/i.test(userText)
-        && !/\b(don'?t|do not|no|stop|cancel|skip|without)\b[\s\S]{0,40}?\btimers?\b/i.test(userText);
+      // Accepting Ankora's own timer offer ("want a 15-minute timer?" → "yes")
+      // is consent too — the model replies "Go" either way, so a card here reads
+      // as a broken promise. Only counts right after an assistant turn that
+      // mentioned a timer, and only for a plain short affirmative.
+      const lastAssistant = [...next].reverse().find(m => m.role === "assistant");
+      const acceptedTimerOffer = !!lastAssistant && /timer|time-?box|on the clock/i.test(lastAssistant.content)
+        && /^(y(es|ep|eah|up)?|ok(ay)?|sure|please|yes please|do it|go|go for it|let'?s (do it|go)|sounds good)\b[\s!.]*$/i.test(userText.trim());
+      const askedForTimer = acceptedTimerOffer
+        || (/\b(start|set|run|begin|do)\b[\s\S]{0,40}?\btimers?\b/i.test(userText)
+        && !/\b(don'?t|do not|no|stop|cancel|skip|without)\b[\s\S]{0,40}?\btimers?\b/i.test(userText));
       if (askedForTimer) AUTO_APPLY.add("timer");
       const autos = suggestions.filter(s => AUTO_APPLY.has(s.type));
       const chips = suggestions.filter(s => !AUTO_APPLY.has(s.type));
@@ -1522,7 +1532,9 @@ export default function Ankora() {
       const groceryNorms = new Set(grocery.filter(g => !g.checked).map(g => normG(g.text)));
       autos.forEach(s => {
         if (s.type === "remember") { if (addMemory(s.text)) saved++; return; }
-        if (actedSigsRef.current.has(suggestionSig(s))) return;  // don't re-add the same item across turns
+        // Timers are exempt from the acted-signature filter: running the same
+        // length timer again later in a conversation is normal, not a duplicate.
+        if (s.type !== "timer" && actedSigsRef.current.has(suggestionSig(s))) return;  // don't re-add the same item across turns
         if (s.type === "reminder") {
           const dup = findDupReminder(s);
           if (dup) {
@@ -1590,7 +1602,9 @@ export default function Ankora() {
           // Drop no-op moves: the model sometimes "moves" a task to the bucket it's
           // already in, which does nothing but clutter the confirm list.
           if (c.type === "move" && tasks.find(t => t.id === c.targetId)?.bucket === c.bucket) return false;
-          if (seen.has(sg) || actedSigsRef.current.has(sg)) return false;
+          // Timers skip the acted filter (see the autos loop) but still dedupe
+          // against cards waiting right now, so one reply can't stack two of them.
+          if (seen.has(sg) || (c.type !== "timer" && actedSigsRef.current.has(sg))) return false;
           seen.add(sg);   // dedupe within this same batch too (model repeats itself)
           return true;
         })];
