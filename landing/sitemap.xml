@@ -2,6 +2,18 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://ankorahq.com/</loc>
-    <lastmod>2026-07-07</lastmod>
+    <lastmod>2026-07-08</lastmod>
+  </url>
+  <url>
+    <loc>https://ankorahq.com/guides/</loc>
+    <lastmod>2026-07-08</lastmod>
+  </url>
+  <url>
+    <loc>https://ankorahq.com/guides/why-you-cant-start-tasks/</loc>
+    <lastmod>2026-07-08</lastmod>
+  </url>
+  <url>
+    <loc>https://ankorahq.com/about/</loc>
+    <lastmod>2026-07-08</lastmod>
   </url>
 </urlset>
