@@ -333,6 +333,8 @@ export default function Ankora() {
   const [selectedPlan, setSelectedPlan] = useState("annual");   // which plan is highlighted in the upgrade modal
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const paymentReturnRef = useRef(false);                  // set when we land back from Stripe Checkout (?payment=success)
+  const nudgeClickRef = useRef(false);                     // arrived via a tapped nudge notification (?n=1) — force-open the check-in
+  const consumedNudgeRef = useRef(null);                   // id of the pendingNudge already surfaced this session
   const [sessions, setSessions] = useState([]);
   const [reminders, setReminders] = useState([]);          // chat-scheduled push reminders
   const [remindersExpanded, setRemindersExpanded] = useState(true);
@@ -518,6 +520,12 @@ export default function Ankora() {
       setUpgradeBusy(false);   // the "Redirecting…" state is stale now that we're back
       window.history.replaceState({}, "", window.location.pathname);
     }
+    // Cold start from a tapped nudge notification: remember it so we force-open the
+    // check-in once the pending nudge loads from the cloud, then clean the URL.
+    if (params.get("n")) {
+      nudgeClickRef.current = true;
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   // Register service worker on mount (needed for background push)
@@ -577,33 +585,48 @@ export default function Ankora() {
 
   // ── Keep the Android/iOS back gesture INSIDE the app. ──
   // Pixel gesture-nav fires the browser's Back on edge swipes, which exits a PWA.
-  // We seed a history entry and, on Back, close the top overlay or fall back to the
-  // chat home. Only a deliberate double-back from the bare home screen exits.
+  // We keep exactly ONE sentinel history entry whenever the UI is "above" the
+  // fresh-start home (an overlay open, a non-chat tab, or an active conversation).
+  // Back peels one layer at a time: overlay → tab → active chat → home. On the
+  // bare home there is no sentinel, so the next back-swipe exits the app.
   const backUiRef = useRef({});
-  backUiRef.current = { tab, showSettings, showHistory, viewingSession, showUpgrade, showClearConfirm, pendingCal, showInstall };
-  const lastHomeBackRef = useRef(0);
+  backUiRef.current = { tab, started, showSettings, showHistory, viewingSession, showUpgrade, showClearConfirm, pendingCal, showInstall };
+  const startNewSessionRef = useRef(() => {});  // assigned where startNewSession is defined
+  const backSeededRef = useRef(false);   // our sentinel entry is currently on the history stack
+  const backUnwindRef = useRef(false);   // we're popping our own stale sentinel — ignore that popstate
+  const backGuardOn = started || tab !== "chat" || showSettings || showHistory || !!viewingSession || showUpgrade || showClearConfirm || !!pendingCal || showInstall;
   useEffect(() => {
-    const reseed = () => { try { window.history.pushState({ addie: 1 }, ""); } catch {} };
-    reseed();
+    // No dep array on purpose: re-check after every state change, since a Back that
+    // closes an overlay consumes the sentinel but may still need one for the layer below.
+    if (backGuardOn && !backSeededRef.current) {
+      try { window.history.pushState({ addie: 1 }, ""); backSeededRef.current = true; } catch {}
+    } else if (!backGuardOn && backSeededRef.current && !backUnwindRef.current) {
+      // Reached home via taps (e.g. the New-session button), not via Back: drop the
+      // stale sentinel so the next back-swipe exits instead of being swallowed.
+      backUnwindRef.current = true;
+      try { window.history.back(); } catch { backUnwindRef.current = false; }
+    }
+  });
+  useEffect(() => {
     const onPop = () => {
+      if (backUnwindRef.current) { backUnwindRef.current = false; backSeededRef.current = false; return; }
+      if (!backSeededRef.current) return;   // not our entry
+      backSeededRef.current = false;        // sentinel consumed; effect above re-seeds if layers remain
       const u = backUiRef.current;
-      if (u.pendingCal)       { setPendingCal(null);       reseed(); return; }
-      if (u.showClearConfirm) { setShowClearConfirm(false); reseed(); return; }
-      if (u.showInstall)      { setShowInstall(false);      reseed(); return; }
-      if (u.showUpgrade)      { setShowUpgrade(false);      reseed(); return; }
-      if (u.viewingSession)   { setViewingSession(null);    reseed(); return; }
-      if (u.showHistory)      { setShowHistory(false);      reseed(); return; }
-      if (u.showSettings)     { setShowSettings(false);     reseed(); return; }
-      if (u.tab !== "chat")   { setTab("chat");             reseed(); return; }
-      // Bare home: require a second back within 2s to actually exit the app.
-      if (Date.now() - lastHomeBackRef.current < 2000) return; // let it exit (no reseed)
-      lastHomeBackRef.current = Date.now();
-      showToast("Swipe back again to exit");
-      reseed();
+      if (u.pendingCal)       { setPendingCal(null);        return; }
+      if (u.showClearConfirm) { setShowClearConfirm(false); return; }
+      if (u.showInstall)      { setShowInstall(false);      return; }
+      if (u.showUpgrade)      { setShowUpgrade(false);      return; }
+      if (u.viewingSession)   { setViewingSession(null);    return; }
+      if (u.showHistory)      { setShowHistory(false);      return; }
+      if (u.showSettings)     { setShowSettings(false);     return; }
+      if (u.tab !== "chat")   { setTab("chat");             return; }
+      // Active conversation: archive it and land on the fresh-start home.
+      if (u.started)          startNewSessionRef.current();
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Auth: track the Supabase session ──
   useEffect(() => {
@@ -1400,6 +1423,62 @@ export default function Ankora() {
     setMessages([]); setStarted(false); setPastExpanded(false); setPending([]); setShowHistory(false);
     actedSigsRef.current = new Set();
   };
+  // Fresh closure every render, so the back-gesture handler (mounted once) never
+  // archives with stale messages.
+  useEffect(() => { startNewSessionRef.current = startNewSession; });
+
+  // ── Proactive nudges: Ankora starts the conversation ──
+  // The cron writes profile.pendingNudge with an opener line. When it shows up
+  // (via cloud load or realtime), open a fresh conversation whose FIRST message
+  // is Ankora asking how something went — so tapping the notification lands the
+  // user straight into that check-in, not a blank screen.
+  const startNudgeConversation = (nudge) => {
+    if (messages.length > 0) archiveMessages(messages);
+    actedSigsRef.current = new Set();
+    setPending([]);
+    setMessages([{ role: "assistant", content: nudge.opener, id: "n" + Date.now(), proactive: true }]);
+    setStarted(true); setPastExpanded(true);
+    setShowHistory(false); setViewingSession(null); setTab("chat");
+    setLastActivity(Date.now());
+    // Consume it so it can't re-trigger; the cleared profile syncs to the cloud.
+    setProfile(p => (p ? { ...p, pendingNudge: null } : p));
+    try { posthog.capture("nudge_opened", { kind: nudge.kind }); } catch {}
+  };
+  const startNudgeRef = useRef(startNudgeConversation);
+  useEffect(() => { startNudgeRef.current = startNudgeConversation; });
+
+  // Surface a pending nudge. `force` (a tapped notification) opens even mid-chat;
+  // otherwise we only open from the home screen so we never hijack an active convo.
+  const maybeStartNudge = useCallback((force) => {
+    const n = profile?.pendingNudge;
+    if (!n?.opener) return;
+    if (consumedNudgeRef.current === n.id) return;
+    const fresh = n.createdAt && (Date.now() - new Date(n.createdAt).getTime() < 12 * 60 * 60 * 1000);
+    if (!fresh) {   // day-old and never opened — drop it quietly
+      consumedNudgeRef.current = n.id;
+      setProfile(p => (p?.pendingNudge ? { ...p, pendingNudge: null } : p));
+      return;
+    }
+    if (!force && started) return;
+    consumedNudgeRef.current = n.id;
+    nudgeClickRef.current = false;
+    startNudgeRef.current(n);
+  }, [profile?.pendingNudge, started]);
+
+  // Open the nudge once it has loaded (cold start honours a tapped notification).
+  useEffect(() => {
+    if (!cloudLoaded) return;
+    maybeStartNudge(nudgeClickRef.current);
+  }, [cloudLoaded, profile?.pendingNudge?.id, started, maybeStartNudge]);
+
+  // Warm focus: the service worker pings us when a notification is tapped while
+  // the app is already open — force the check-in open even mid-conversation.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMsg = (e) => { if (e.data?.type === "nudge-open") maybeStartNudge(true); };
+    navigator.serviceWorker.addEventListener("message", onMsg);
+    return () => navigator.serviceWorker.removeEventListener("message", onMsg);
+  }, [maybeStartNudge]);
 
   // User-written note on an archived conversation, so they can find it later.
   const setSessionNote = (id, note) => {
@@ -1453,13 +1532,22 @@ export default function Ankora() {
     setMessages(next); setInput(""); setLoading(true); setStarted(true); setLastActivity(Date.now());
     if (taRef.current) { taRef.current.style.height = "auto"; }
     try {
+      // A nudge conversation opens with Ankora's proactive line. The Messages API
+      // requires the first turn to be the user, so lift that opener into the system
+      // prompt as context and send only the real user/assistant turns.
+      const proactiveOpener = next[0]?.proactive ? next[0].content : null;
+      const apiMessages = (proactiveOpener ? next.slice(1) : next).map(m => ({ role: m.role, content: m.content }));
+      let systemPrompt = buildSystemPrompt(tasks, grocery, profile, memory, notes, calEvents, reminders);
+      if (proactiveOpener) {
+        systemPrompt += `\n\nCONVERSATION CONTEXT: You just proactively reached out to the user with this check-in (they did not message you first): "${proactiveOpener}". They are now replying to it. Respond naturally as a continuation; do NOT greet them again from scratch or repeat the check-in.`;
+      }
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ system: buildSystemPrompt(tasks, grocery, profile, memory, notes, calEvents, reminders), messages: next.map(m => ({ role: m.role, content: m.content })), timeZone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })() }),
+        body: JSON.stringify({ system: systemPrompt, messages: apiMessages, timeZone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })() }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -1714,6 +1802,9 @@ export default function Ankora() {
   };
   const saveSettings = () => {
     const p = {
+      // Preserve server-managed fields (nudge guard dates, pendingNudge) that the
+      // cron writes into profile — rebuilding from scratch would wipe them.
+      ...profile,
       style: onboardDraft.style,
       pattern: onboardDraft.pattern,
       context: onboardDraft.context.trim(),
