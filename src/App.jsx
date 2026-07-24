@@ -314,6 +314,7 @@ export default function Ankora() {
   const [session, setSession] = useState(null);     // Supabase session, or null when signed out
   const [authLoading, setAuthLoading] = useState(true);
   const [cloudLoaded, setCloudLoaded] = useState(false); // true once this user's row is fetched
+  const [cloudReadFailed, setCloudReadFailed] = useState(false); // initial read errored — retry to establish a baseline before any write
   const [authEmail, setAuthEmail] = useState("");
   const [authSent, setAuthSent] = useState(false);  // OTP sent → show code entry
   const [authBusy, setAuthBusy] = useState(false);
@@ -380,7 +381,13 @@ export default function Ankora() {
   // Store the absolute end time so backgrounding doesn't affect accuracy
   const timerEndTimeRef = useRef(null);
   // JSON of the last data we synced (saved or received), to dedupe + ignore echoes.
+  // While this is null we have NO trusted baseline (no successful read yet) and must
+  // never write to the cloud — that's the guard that prevents a failed/absent load
+  // from overwriting good cloud data with empty/stale local state.
   const lastSyncedRef = useRef(null);
+  // updated_at of the row behind lastSyncedRef, used as the tiebreaker when both this
+  // device and another have changed since our last sync (newer write wins).
+  const lastSyncedAtRef = useRef(null);
 
   // Detect platform for backup alarm link
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -651,19 +658,28 @@ export default function Ankora() {
   // If they have no cloud row yet (first sign-in), migrate whatever is in
   // localStorage up to the cloud once, then treat the cloud as the source of truth.
   useEffect(() => {
-    if (!session) { setCloudLoaded(false); return; }
+    if (!session) { setCloudLoaded(false); setCloudReadFailed(false); return; }
     let cancelled = false;
+    setCloudReadFailed(false);   // fresh load — clear any stale failure from a prior session
+    // A new session means a new (or re-fetched) baseline is coming; drop the old one so
+    // Guard A can't let a save fire against another account's baseline mid-switch.
+    lastSyncedRef.current = null;
+    lastSyncedAtRef.current = null;
     (async () => {
       const [{ data, error }, { data: subData }] = await Promise.all([
-        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions, reminders, memory, notes").eq("user_id", session.user.id).maybeSingle(),
+        supabase.from("user_data").select("tasks, grocery, profile, messages, sessions, reminders, memory, notes, updated_at").eq("user_id", session.user.id).maybeSingle(),
         supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle(),
       ]);
       if (cancelled) return;
 
       if (error) {
-        // Network/permission issue — fall back to whatever loaded from localStorage
-        // so the app still works offline. We'll sync again on the next change.
+        // Network/permission issue — render offline from whatever loaded from
+        // localStorage, but leave lastSyncedRef null so NO write can go out (Guard A):
+        // an empty/stale local state must never overwrite the cloud after a failed
+        // read. cloudReadFailed drives a background retry that establishes a trusted
+        // baseline (by merge, never clobber) as soon as the network returns.
         showToast("Couldn't reach the cloud — working offline");
+        setCloudReadFailed(true);
         setCloudLoaded(true);
         return;
       }
@@ -693,6 +709,7 @@ export default function Ankora() {
         if (cloudProfile) { setProfile(cloudProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
         lastSyncedRef.current = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions, cloudReminders, cloudMemory, cloudNotes);
+        lastSyncedAtRef.current = data.updated_at || null;
       } else {
         // First time this device signs into this account → merge its local data
         // into the cloud so nothing on this device is lost (union by id). Each
@@ -721,16 +738,18 @@ export default function Ankora() {
         if (mergedProfile) { setProfile(mergedProfile); setOnboarded(true); }
         else { setProfile(null); setOnboarded(false); }
 
+        const mergedAt = new Date().toISOString();
         const { error: upErr } = await supabase.from("user_data").upsert({
           user_id: session.user.id,
           tasks: mergedTasks, grocery: mergedGrocery, profile: mergedProfile,
           messages: mergedMessages, sessions: mergedSessions, reminders: mergedReminders, memory: mergedMemory, notes: mergedNotes,
-          updated_at: new Date().toISOString(),
+          updated_at: mergedAt,
         });
         if (!upErr) {
           try { window.localStorage.setItem(MIGRATED_KEY, session.user.id); } catch {}
         }
         lastSyncedRef.current = snapshotJson(mergedTasks, mergedGrocery, mergedProfile, mergedMessages, mergedSessions, mergedReminders, mergedMemory, mergedNotes);
+        lastSyncedAtRef.current = mergedAt;
       }
       setSubscription(subData?.status === "active" ? "active" : "free");
       setCloudLoaded(true);
@@ -747,14 +766,22 @@ export default function Ankora() {
 
   const saveToCloud = useCallback(() => {
     if (!session || !cloudLoaded) return;
+    // Guard A: never write without a trusted baseline. lastSyncedRef is null only
+    // when no read has ever succeeded for this session — writing here is exactly the
+    // failed-load-overwrites-cloud bug. The retry loop establishes a baseline (by
+    // merge) before any save is allowed, so an intentional empty (delete after a good
+    // load → baseline present) still syncs, while an accidental empty never leaves.
+    if (lastSyncedRef.current === null) return;
     const d = latestRef.current;
     const json = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions, d.reminders, d.memory, d.notes);
     if (json === lastSyncedRef.current) return; // nothing changed since last sync (incl. our own echoes)
+    const savedAt = new Date().toISOString();
     lastSyncedRef.current = json;
+    lastSyncedAtRef.current = savedAt;
     supabase.from("user_data").upsert({
       user_id: session.user.id,
       tasks: d.tasks, grocery: d.grocery, profile: d.profile, messages: d.messages, sessions: d.sessions, reminders: d.reminders, memory: d.memory, notes: d.notes,
-      updated_at: new Date().toISOString(),
+      updated_at: savedAt,
     }).then(({ error }) => {
       if (error) {
         console.warn("Cloud save failed:", error.message);
@@ -804,6 +831,7 @@ export default function Ankora() {
           // Ignore our own echo / anything identical to what we already have.
           if (incoming === lastSyncedRef.current) return;
           lastSyncedRef.current = incoming;
+          if (row.updated_at) lastSyncedAtRef.current = row.updated_at;
           setTasks(rTasks);
           setGrocery(rGrocery);
           if (rMessages.length > 0) setMessages(rMessages);
@@ -819,18 +847,91 @@ export default function Ankora() {
     return () => { supabase.removeChannel(channel); };
   }, [session?.user?.id, cloudLoaded]);
 
+  // ── Recover a trusted baseline after a failed/absent initial read. ──
+  // Runs while lastSyncedRef is still null (Guard A has writes locked). It UNIONS
+  // whatever this device has locally with the cloud row — the same non-destructive
+  // merge the first sign-in uses — writes the union back, then unlocks writes by
+  // setting the baseline. Because it only ever writes a superset, it can never be the
+  // source of a wipe, and no local edits made during the outage are lost.
+  const recoverBaseline = useCallback(async () => {
+    if (!session) return;
+    const [{ data, error }, { data: subData }] = await Promise.all([
+      supabase.from("user_data")
+        .select("tasks, grocery, profile, messages, sessions, reminders, memory, notes, updated_at")
+        .eq("user_id", session.user.id).maybeSingle(),
+      supabase.from("subscriptions").select("status").eq("user_id", session.user.id).maybeSingle(),
+    ]);
+    if (error) return;   // still unreachable — the retry effect will try again
+    const local = latestRef.current;
+    const cloudTasks     = Array.isArray(data?.tasks)     ? data.tasks     : [];
+    const cloudGrocery   = Array.isArray(data?.grocery)   ? data.grocery   : [];
+    const cloudMessages  = Array.isArray(data?.messages)  ? data.messages  : [];
+    const cloudSessions  = Array.isArray(data?.sessions)  ? data.sessions  : [];
+    const cloudReminders = Array.isArray(data?.reminders) ? data.reminders : [];
+    const cloudMemory    = Array.isArray(data?.memory)    ? data.memory    : [];
+    const cloudNotes     = typeof data?.notes === "string" ? data.notes : "";
+    const cloudProfile   = data?.profile || null;
+    const mTasks     = mergeById(cloudTasks, local.tasks);
+    const mGrocery   = mergeById(cloudGrocery, local.grocery);
+    const mSessions  = mergeById(cloudSessions, local.sessions);
+    const mReminders = mergeById(cloudReminders, local.reminders);
+    const mMemory    = mergeById(cloudMemory, local.memory);
+    const mMessages  = (Array.isArray(local.messages) && local.messages.length > 0) ? local.messages : cloudMessages;
+    const mNotes     = cloudNotes.trim() ? cloudNotes : (local.notes || "");
+    const mProfile   = profileHasContent(cloudProfile) ? cloudProfile
+                     : (profileHasContent(local.profile) ? local.profile : (cloudProfile || local.profile));
+    const cloudSnap  = snapshotJson(cloudTasks, cloudGrocery, cloudProfile, cloudMessages, cloudSessions, cloudReminders, cloudMemory, cloudNotes);
+    const mergedSnap = snapshotJson(mTasks, mGrocery, mProfile, mMessages, mSessions, mReminders, mMemory, mNotes);
+    let at = data?.updated_at || null;
+    // Only write when the merge actually adds something (offline edits). A plain
+    // reconnect with nothing local to contribute just adopts the cloud as baseline.
+    if (mergedSnap !== cloudSnap) {
+      at = new Date().toISOString();
+      const { error: upErr } = await supabase.from("user_data").upsert({
+        user_id: session.user.id,
+        tasks: mTasks, grocery: mGrocery, profile: mProfile,
+        messages: mMessages, sessions: mSessions, reminders: mReminders, memory: mMemory, notes: mNotes,
+        updated_at: at,
+      });
+      if (upErr) return;   // couldn't write the baseline — stay locked, retry later
+    }
+    setTasks(mTasks); setGrocery(mGrocery);
+    setMessages(mMessages); setSessions(mSessions); setReminders(mReminders); setMemory(mMemory); setNotes(mNotes);
+    if (mProfile) { setProfile(mProfile); setOnboarded(true); }
+    else { setProfile(null); setOnboarded(false); }
+    setSubscription(subData?.status === "active" ? "active" : "free");
+    lastSyncedRef.current = mergedSnap;
+    lastSyncedAtRef.current = at;
+    setCloudReadFailed(false);
+  }, [session]);
+
+  // Retry loop: while the initial read is failing, keep trying to establish a baseline
+  // (also the moment the network returns) so a device never stays write-locked for long.
+  useEffect(() => {
+    if (!cloudReadFailed) return;
+    const retry = () => { recoverBaseline(); };
+    const id = setInterval(retry, 8000);
+    window.addEventListener("online", retry);
+    return () => { clearInterval(id); window.removeEventListener("online", retry); };
+  }, [cloudReadFailed, recoverBaseline]);
+
   // ── Catch-up sync: mobile browsers kill the realtime websocket while the app is
   // backgrounded, and missed events are never replayed — so changes made on another
   // device while the phone slept simply never arrived. On every return to the
-  // foreground, re-fetch the cloud row and adopt it (or push local changes first if
-  // any are unsaved — they win, and realtime propagates them the other way).
+  // foreground, reconcile with the cloud row. Decision table (whole-snapshot LWW,
+  // matching the single-row model): pure remote change → adopt; pure local change →
+  // push; both changed → the newer updated_at wins. This is what lets an intentional
+  // clear on another device land here instead of being resurrected by a stale push.
   const syncFromCloud = useCallback(async () => {
     if (!session || !cloudLoaded) return;
+    // No trusted baseline yet (a prior read failed): re-establish it by MERGING with
+    // the cloud — never push local over it. Guard A keeps writes locked until then.
+    if (lastSyncedRef.current === null) { recoverBaseline(); return; }
     const d = latestRef.current;
     const localJson = snapshotJson(d.tasks, d.grocery, d.profile, d.messages, d.sessions, d.reminders, d.memory, d.notes);
-    if (localJson !== lastSyncedRef.current) { saveToCloud(); return; }   // unsaved local edits — push, don't pull
+    const hasLocalEdits = localJson !== lastSyncedRef.current;
     const { data, error } = await supabase.from("user_data")
-      .select("tasks, grocery, profile, messages, sessions, reminders, memory, notes")
+      .select("tasks, grocery, profile, messages, sessions, reminders, memory, notes, updated_at")
       .eq("user_id", session.user.id).maybeSingle();
     if (error || !data) return;
     const rTasks    = Array.isArray(data.tasks)    ? data.tasks    : [];
@@ -842,13 +943,24 @@ export default function Ankora() {
     const rNotes    = typeof data.notes === "string" ? data.notes : "";
     const rProfile  = data.profile || null;
     const incoming = snapshotJson(rTasks, rGrocery, rProfile, rMessages, rSessions, rReminders, rMemory, rNotes);
-    if (incoming === lastSyncedRef.current) return;   // nothing new
+
+    // Cloud unchanged from our baseline → the only possible difference is our own
+    // local edits; push them so they reach the other devices.
+    if (incoming === lastSyncedRef.current) { if (hasLocalEdits) saveToCloud(); return; }
+
+    // Cloud moved since our baseline. If we also have local edits AND ours is the
+    // newer write, ours wins (push). Otherwise the cloud is authoritative — adopt it.
+    const cloudNewer = !!(data.updated_at && lastSyncedAtRef.current
+      && new Date(data.updated_at) > new Date(lastSyncedAtRef.current));
+    if (hasLocalEdits && !cloudNewer) { saveToCloud(); return; }
     lastSyncedRef.current = incoming;
+    lastSyncedAtRef.current = data.updated_at || lastSyncedAtRef.current;
     setTasks(rTasks); setGrocery(rGrocery);
     if (rMessages.length > 0) setMessages(rMessages);
     setSessions(rSessions); setReminders(rReminders); setMemory(rMemory); setNotes(rNotes);
     if (rProfile) { setProfile(rProfile); setOnboarded(true); }
-  }, [session, cloudLoaded, saveToCloud]);
+    else { setProfile(null); setOnboarded(false); }
+  }, [session, cloudLoaded, saveToCloud, recoverBaseline]);
 
   useEffect(() => {
     const onVis = () => { if (!document.hidden) syncFromCloud(); };
