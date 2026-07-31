@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>What's your stuck style? (60-second quiz) | Ankora</title>
+  <meta name="description" content="Everyone gets stuck differently. Take the 60-second quiz to find your stuck style and the one thing that actually helps your brain start. ADHD-friendly, no sign-up to see your result." />
+  <link rel="canonical" href="https://ankorahq.com/quiz/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="What's your stuck style?" />
+  <meta property="og:description" content="Four ways a brain gets stuck. Take the 60-second quiz and find out which one is yours, plus the thing that actually helps you start." />
+  <meta property="og:url" content="https://ankorahq.com/quiz/" />
+  <!-- Reuses the existing share card so the preview is never broken. Swap for a
+       quiz-specific og-quiz.jpg ("What's your stuck style?") when one exists. -->
+  <meta property="og:image" content="https://ankorahq.com/og-image-v2.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="What's your stuck style?" />
+  <meta name="twitter:description" content="Four ways a brain gets stuck. Find out which one is yours in 60 seconds." />
+  <meta name="twitter:image" content="https://ankorahq.com/og-image-v2.jpg" />
+  <link rel="icon" href="/apple-touch-icon.png" />
+  <!-- Google Analytics (GA4). Same measurement ID as the app so the
+       ankorahq.com -> app.ankorahq.com hop stays ONE session and the Google Ads
+       gclid survives it (the _ga / _gcl_au cookies are set on .ankorahq.com).
+       Product analytics stays in PostHog; GA4 is here for ads + SEO. -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-KVSZ6CD1EY"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-KVSZ6CD1EY');
+  </script>
+  <script>
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    // Same PostHog project as the app and landing; the cookie lives on
+    // .ankorahq.com so the quiz taker and their app signup share one distinct_id.
+    posthog.init('phc_pVWbzgzySDV7V5KiRHiT6nv9uzXWCXD3Vb8bXLbuvHxZ', {
+      api_host: 'https://us.i.posthog.com',
+      capture_pageview: true,
+      capture_pageleave: true,
+      autocapture: false,
+    });
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy: #1A1340;
+      --navy-light: #241B4D;
+      --coral: #E07848;
+      --coral-light: #F0936A;
+      --peach: #ffd0b7;
+      --white-70: rgba(255,255,255,0.7);
+      --white-40: rgba(255,255,255,0.55);
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--navy);
+      color: #fff;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+
+    /* NAV */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      padding: 16px 40px;
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(13,21,38,0.88);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #fff; }
+    .nav-logo img { width: 28px; height: 28px; border-radius: 7px; }
+    .nav-wordmark { font-size: 19px; font-weight: 700; letter-spacing: -0.3px; }
+    .nav-cta {
+      padding: 10px 22px; background: var(--coral); color: #fff;
+      text-decoration: none; border-radius: 100px; font-size: 15px; font-weight: 700;
+      transition: background 0.15s;
+    }
+    .nav-cta:hover { background: var(--coral-light); }
+
+    /* STAGE */
+    .stage {
+      position: relative; overflow: hidden;
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 110px 24px 60px;
+      background: linear-gradient(180deg, #0A1742 0%, #14102E 45%, var(--navy) 100%);
+    }
+    .stage::before {
+      content: ''; position: absolute; top: -10%; left: 50%;
+      transform: translateX(-50%); width: 900px; height: 900px;
+      background: radial-gradient(circle, rgba(224,120,72,0.11) 0%, transparent 65%);
+      pointer-events: none;
+    }
+    .wrap { width: 100%; max-width: 620px; position: relative; z-index: 1; }
+
+    .screen { display: none; }
+    .screen.active { display: block; animation: fade 0.35s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 16px; border: 1px solid rgba(224,120,72,0.35);
+      border-radius: 100px; font-size: 13px; color: var(--coral-light); margin-bottom: 24px;
+    }
+
+    /* INTRO */
+    .intro { text-align: center; }
+    .intro h1 {
+      font-size: clamp(34px, 6vw, 54px); font-weight: 800;
+      line-height: 1.08; letter-spacing: -1.5px; margin-bottom: 18px;
+    }
+    .intro h1 em { font-style: normal; color: var(--peach); }
+    .intro p { font-size: clamp(16px, 2.2vw, 19px); color: var(--white-70); max-width: 460px; margin: 0 auto 34px; }
+    .intro .note { font-size: 13px; color: var(--white-40); margin-top: 18px; }
+
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 16px 34px; background: var(--coral); color: #fff;
+      text-decoration: none; border: none; cursor: pointer;
+      border-radius: 100px; font-size: 18px; font-weight: 700; font-family: inherit;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover { background: var(--coral-light); transform: translateY(-1px); }
+
+    /* PROGRESS */
+    .progress-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+    .progress-count { font-size: 13px; font-weight: 600; color: var(--white-40); letter-spacing: 0.3px; }
+    .progress-track { height: 6px; background: rgba(255,255,255,0.09); border-radius: 100px; overflow: hidden; margin-bottom: 34px; }
+    .progress-fill { height: 100%; width: 0; background: var(--coral); border-radius: 100px; transition: width 0.3s ease; }
+
+    /* QUESTION */
+    .q-text {
+      font-size: clamp(21px, 3.4vw, 28px); font-weight: 800;
+      line-height: 1.25; letter-spacing: -0.6px; margin-bottom: 26px;
+    }
+    .answers { display: flex; flex-direction: column; gap: 12px; }
+    .answer {
+      text-align: left; width: 100%; cursor: pointer; font-family: inherit;
+      background: var(--navy-light); color: #fff;
+      border: 1.5px solid rgba(255,255,255,0.10); border-radius: 16px;
+      padding: 17px 20px; font-size: 15.5px; line-height: 1.45;
+      transition: border-color 0.15s, background 0.15s, transform 0.08s;
+    }
+    .answer:hover { border-color: rgba(224,120,72,0.55); background: #2b2058; }
+    .answer:active { transform: scale(0.995); }
+    .back {
+      margin-top: 22px; background: none; border: none; cursor: pointer; font-family: inherit;
+      color: var(--white-40); font-size: 14px; padding: 4px 0;
+    }
+    .back:hover { color: var(--white-70); }
+    .back[hidden] { display: none; }
+
+    /* RESULT */
+    .result { }
+    .result .label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: var(--coral); margin-bottom: 12px; }
+    .result h2 { font-size: clamp(32px, 6vw, 50px); font-weight: 800; letter-spacing: -1.4px; line-height: 1.05; margin-bottom: 10px; }
+    .result .tagline { font-size: 17px; color: var(--peach); font-weight: 600; margin-bottom: 22px; }
+    .result .body { font-size: 16px; color: var(--white-70); line-height: 1.65; margin-bottom: 26px; }
+    .result-card {
+      background: var(--navy-light); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px; padding: 22px 24px; margin-bottom: 16px;
+    }
+    .result-card h3 {
+      font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
+      color: var(--coral-light); margin-bottom: 8px;
+    }
+    .result-card p { font-size: 15px; color: rgba(255,255,255,0.82); line-height: 1.6; }
+    .result-cta { margin-top: 28px; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+    .result-actions { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+    .btn-share {
+      background: none; border: none; cursor: pointer; font-family: inherit;
+      color: var(--white-70); font-size: 14.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 7px;
+    }
+    .btn-share:hover { color: #fff; }
+    .retake { color: var(--white-40); font-size: 14px; text-decoration: none; }
+    .retake:hover { color: var(--white-70); }
+
+    /* TOAST */
+    .toast {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: #fff; color: #14102E; font-size: 14px; font-weight: 600;
+      padding: 11px 20px; border-radius: 100px; box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+      opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; z-index: 200;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    footer {
+      text-align: center; padding: 30px 20px; font-size: 12.5px; color: var(--white-40);
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    footer a { color: var(--white-40); text-decoration: none; }
+    footer a:hover { color: var(--white-70); }
+
+    @media (max-width: 560px) {
+      nav { padding: 14px 20px; }
+      .stage { padding: 96px 18px 48px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">
+    <img src="/apple-touch-icon.png" alt="Ankora logo" />
+    <span class="nav-wordmark">Ankora</span>
+  </a>
+  <a href="https://app.ankorahq.com" class="nav-cta">Open app</a>
+</nav>
+
+<div class="stage">
+  <div class="wrap">
+
+    <!-- INTRO -->
+    <section id="intro" class="screen intro active">
+      <div class="badge">A 60-second quiz</div>
+      <h1>What's your <em>stuck</em> style?</h1>
+      <p>Everyone gets stuck differently. Find out which kind of stuck is yours, and the one thing that actually helps your brain start.</p>
+      <button class="btn-primary" id="start-btn">Start the quiz <span aria-hidden="true">&rarr;</span></button>
+      <p class="note">Four questions in, you'll know your type. No sign-up to see your result.</p>
+    </section>
+
+    <!-- QUIZ -->
+    <section id="quiz" class="screen">
+      <div class="progress-row">
+        <span class="progress-count" id="progress-count">Question 1</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <h2 class="q-text" id="q-text"></h2>
+      <div class="answers" id="answers"></div>
+      <button class="back" id="back-btn" hidden>&larr; Back</button>
+    </section>
+
+    <!-- RESULT -->
+    <section id="result" class="screen result">
+      <p class="label">Your stuck style</p>
+      <h2 id="r-name"></h2>
+      <p class="tagline" id="r-tagline"></p>
+      <p class="body" id="r-body"></p>
+      <div class="result-card">
+        <h3>What actually helps</h3>
+        <p id="r-helps"></p>
+      </div>
+      <div class="result-card">
+        <h3>How Ankora does it</h3>
+        <p id="r-ankora"></p>
+      </div>
+      <div class="result-cta">
+        <a class="btn-primary" id="r-cta" href="#"></a>
+        <div class="result-actions">
+          <button class="btn-share" id="share-btn"><span aria-hidden="true">&#8599;</span> Share your type</button>
+          <a class="retake" href="#" id="retake">Retake the quiz</a>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<footer>
+  <a href="/">Ankora</a> &nbsp;&middot;&nbsp; The AI that gets you started &nbsp;&middot;&nbsp; <a href="/guides/">Guides</a>
+</footer>
+
+<div class="toast" id="toast">Link copied</div>
+
+<script>
+(function () {
+  // Fixed answer order per question: Freezer, Flooded, Magpie, Juggler.
+  // Scoring is a simple tally; Q5 (index 4) is the tiebreaker because "what would
+  // help most" is the most intent-revealing answer.
+  var TYPES = ['freezer', 'flooded', 'magpie', 'juggler'];
+  var PRIORITY = ['freezer', 'flooded', 'magpie', 'juggler']; // last-resort tiebreak
+
+  var QUESTIONS = [
+    { q: "One big thing is hanging over your workday. What actually happens?",
+      a: ["It feels huge and I can't find the first thread to pull.",
+          "It's the ten things behind it too, and my brain just stalls.",
+          "I mean to start, but somehow I'm answering easy emails instead.",
+          "It's there, plus six other things in my head, and I'm scared I'll drop one."] },
+    { q: "Your to-do list right now is best described as:",
+      a: ["A couple of big scary items with no obvious entry point.",
+          "So long I stopped reading it.",
+          "The fun stuff done, the important stuff untouched.",
+          "Mostly in my head, honestly. The written one is out of date."] },
+    { q: "The task you avoid most is usually the one that's:",
+      a: ["Big and vague. I don't know what 'done' even looks like.",
+          "One of too many. I can't tell which fire to fight first.",
+          "Boring. If it were interesting I'd have done it already.",
+          "Easy to forget until it's suddenly urgent."] },
+    { q: "It's 9pm and the important thing still isn't done. Why?",
+      a: ["I never managed to start it.",
+          "I bounced between everything and finished nothing.",
+          "I did a lot today, just not that.",
+          "It genuinely slipped my mind until now."] },
+    { q: "What would help most in the moment you're stuck?",
+      a: ["One step small enough that I can actually begin.",
+          "Someone to say 'ignore the rest, just do this next.'",
+          "Make the boring thing a game, start a timer with me.",
+          "Somewhere to dump it all so I stop holding it in my head."] },
+    { q: "Your relationship with reminders is:",
+      a: ["I don't need reminders to remember, I need help starting.",
+          "Everything's on there and it's terrifying to look at.",
+          "I see it, think 'later,' and later never comes.",
+          "If it's not written the second I think of it, it's gone."] },
+    { q: "When you finally get going, what keeps you going?",
+      a: ["Just crossing the starting line. That's the hard part for me.",
+          "Only having to think about one thing, not all of them.",
+          "A timer, a race, some stakes, or I drift back to something easy.",
+          "Not holding the whole list, so I can focus on this piece."] }
+  ];
+
+  var RESULTS = {
+    freezer: {
+      name: "The Freezer",
+      tagline: "The task is a wall, and you can't find the door.",
+      body: "It's not that the task is hard. It sits there as one big undefined blob, and the harder you stare, the more impossible starting feels. This isn't a discipline problem. Your brain needs an entry point small enough not to trip the freeze, and “do the whole thing” will never be that.",
+      helps: "One first step so small it's almost silly to say no to. Not “write the report,” but “open the doc, type the headers.” Momentum beats motivation, and it only takes the first ten minutes.",
+      ankora: "Tell Ankora the thing you're dreading, in a messy paragraph, and it hands back one step you can start right now, then stays with you so you keep going.",
+      cta: "Meet your anti-freeze coach"
+    },
+    flooded: {
+      name: "The Flooded",
+      tagline: "It's not one task. It's all of them, at once.",
+      body: "The sheer volume shorts out your thinking. You freeze not because you don't care, but because everything is screaming at the same volume and you can't tell what to touch first. That's overwhelm, not incapacity.",
+      helps: "Permission to ignore the pile and look at exactly one next move. The relief isn't a better list, it's a smaller field of view.",
+      ankora: "Dump everything swirling in your head and Ankora pulls out the one thing most on fire, tells you the single next move, and quietly holds the rest. When the day changes shape, it helps you regroup instead of starting from zero.",
+      cta: "Get your one next move"
+    },
+    magpie: {
+      name: "The Magpie",
+      tagline: "You're not avoiding work. You're doing the wrong work, beautifully.",
+      body: "The boring-but-important thing loses every time to the interesting-and-easy thing sitting next to it, so you end the day busy and behind. The issue isn't effort. The important task just doesn't give your brain enough to grab onto.",
+      helps: "Manufacture the missing spark. A timer, a race, stakes, someone in it with you, so the boring thing can finally compete.",
+      ankora: "Ankora shrinks the tedious task to “just today's receipts, nothing else,” turns it into a 5-minute game, and runs the clock with you. Then it nudges you back when you drift.",
+      cta: "Make the boring thing winnable"
+    },
+    juggler: {
+      name: "The Juggler",
+      tagline: "You're the RAM for everything, and it's exhausting.",
+      body: "You can handle any single thing on the list. What wears you down is holding all of it at once: the appointment, the thing you're out of, the email you owe, the half-thought from the shower. Dropping one isn't carelessness, it's an overloaded system.",
+      helps: "Get it out of your head the second it appears, so you stop spending energy remembering to remember.",
+      ankora: "Tell Ankora anything the moment it lands, “out of oat milk, remind me to call the dentist tomorrow at 10,” and it captures the item, sets the reminder, and remembers your context so you're not the only backup.",
+      cta: "Put the list down"
+    }
+  };
+
+  var APP_BASE = 'https://app.ankorahq.com/';
+
+  var answers = [];       // selected type index per question
+  var current = 0;
+  var started = false;
+
+  var el = {
+    intro: document.getElementById('intro'),
+    quiz: document.getElementById('quiz'),
+    result: document.getElementById('result'),
+    qText: document.getElementById('q-text'),
+    answersBox: document.getElementById('answers'),
+    count: document.getElementById('progress-count'),
+    fill: document.getElementById('progress-fill'),
+    back: document.getElementById('back-btn'),
+    toast: document.getElementById('toast')
+  };
+
+  function show(screen) {
+    [el.intro, el.quiz, el.result].forEach(function (s) { s.classList.remove('active'); });
+    screen.classList.add('active');
+    window.scrollTo(0, 0);
+  }
+
+  function ph(event, props) {
+    if (window.posthog && posthog.capture) posthog.capture(event, props || {});
+  }
+
+  function renderQuestion() {
+    var item = QUESTIONS[current];
+    el.qText.textContent = item.q;
+    el.count.textContent = 'Question ' + (current + 1) + ' of ' + QUESTIONS.length;
+    el.fill.style.width = ((current) / QUESTIONS.length * 100) + '%';
+    el.back.hidden = current === 0;
+    el.answersBox.innerHTML = '';
+    item.a.forEach(function (text, i) {
+      var b = document.createElement('button');
+      b.className = 'answer';
+      b.type = 'button';
+      b.textContent = text;
+      b.addEventListener('click', function () { pick(i); });
+      el.answersBox.appendChild(b);
+    });
+  }
+
+  function pick(typeIndex) {
+    answers[current] = typeIndex;
+    ph('quiz_answer', { question: current + 1, type: TYPES[typeIndex] });
+    if (current < QUESTIONS.length - 1) {
+      current++;
+      renderQuestion();
+    } else {
+      el.fill.style.width = '100%';
+      finish();
+    }
+  }
+
+  function score() {
+    var tally = { freezer: 0, flooded: 0, magpie: 0, juggler: 0 };
+    answers.forEach(function (ti) { tally[TYPES[ti]]++; });
+    var max = Math.max(tally.freezer, tally.flooded, tally.magpie, tally.juggler);
+    var leaders = TYPES.filter(function (t) { return tally[t] === max; });
+    if (leaders.length === 1) return leaders[0];
+    // Tiebreak 1: the type they picked for Q5 (the "what helps most" question).
+    var q5 = answers[4] != null ? TYPES[answers[4]] : null;
+    if (q5 && leaders.indexOf(q5) !== -1) return q5;
+    // Tiebreak 2: fixed priority order.
+    for (var i = 0; i < PRIORITY.length; i++) {
+      if (leaders.indexOf(PRIORITY[i]) !== -1) return PRIORITY[i];
+    }
+    return leaders[0];
+  }
+
+  function finish() {
+    var slug = score();
+    var r = RESULTS[slug];
+    document.getElementById('r-name').textContent = r.name;
+    document.getElementById('r-tagline').textContent = r.tagline;
+    document.getElementById('r-body').textContent = r.body;
+    document.getElementById('r-helps').textContent = r.helps;
+    document.getElementById('r-ankora').textContent = r.ankora;
+
+    var cta = document.getElementById('r-cta');
+    cta.href = APP_BASE + '?utm_source=quiz&utm_medium=quiz&utm_campaign=' + slug;
+    cta.innerHTML = r.cta + ' <span aria-hidden="true">&rarr;</span>';
+    cta.onclick = function () { ph('quiz_cta_click', { archetype: slug }); };
+
+    // Segment app signups by archetype later: this rides the shared distinct_id
+    // into the app, so the quiz -> signup funnel is splittable by stuck style.
+    if (window.posthog) {
+      posthog.register({ quiz_archetype: slug });
+      posthog.setPersonProperties({ quiz_archetype: slug }, { first_quiz_archetype: slug });
+    }
+    ph('quiz_result', { archetype: slug });
+    if (window.gtag) gtag('event', 'quiz_complete', { archetype: slug });
+
+    window.__stuckStyle = r.name; // used by the share button
+    show(el.result);
+  }
+
+  function toast(msg) {
+    el.toast.textContent = msg;
+    el.toast.classList.add('show');
+    setTimeout(function () { el.toast.classList.remove('show'); }, 1900);
+  }
+
+  // Wire up controls
+  document.getElementById('start-btn').addEventListener('click', function () {
+    if (!started) { ph('quiz_start'); started = true; }
+    current = 0; answers = [];
+    renderQuestion();
+    show(el.quiz);
+  });
+
+  el.back.addEventListener('click', function () {
+    if (current > 0) { current--; renderQuestion(); }
+  });
+
+  document.getElementById('retake').addEventListener('click', function (e) {
+    e.preventDefault();
+    current = 0; answers = [];
+    ph('quiz_start');
+    show(el.intro);
+  });
+
+  document.getElementById('share-btn').addEventListener('click', function () {
+    var name = window.__stuckStyle || 'my stuck style';
+    var text = "I'm " + name + " on Ankora's stuck-style quiz. What's yours?";
+    var url = 'https://ankorahq.com/quiz/';
+    ph('quiz_share_click', {});
+    if (navigator.share) {
+      navigator.share({ title: "What's your stuck style?", text: text, url: url }).catch(function () {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text + ' ' + url).then(function () { toast('Copied. Go make a friend jealous.'); });
+    } else {
+      toast(url);
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
