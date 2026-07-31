@@ -36,6 +36,19 @@
     <meta name="twitter:image" content="https://app.ankorahq.com/og-image-v2.jpg" />
 
     <title>Ankora - let's get going</title>
+
+    <!-- Google Analytics (GA4). Same measurement ID as the landing pages so the
+         ankorahq.com -> app.ankorahq.com hop stays ONE session and the Google Ads
+         gclid survives it (the _ga / _gcl_au cookies are set on .ankorahq.com).
+         Product analytics stays in PostHog; GA4 is here for ads + SEO. The signup
+         conversion to import into Google Ads is the `sign_up` event in App.jsx. -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-KVSZ6CD1EY"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-KVSZ6CD1EY');
+    </script>
   </head>
   <body>
     <div id="root"></div>

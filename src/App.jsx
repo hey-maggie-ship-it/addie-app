@@ -53,6 +53,23 @@ function snapshotJson(tasks, grocery, profile, messages = [], sessions = [], rem
   return JSON.stringify({ tasks: tasks||[], grocery: grocery||[], profile: profile||null, messages: messages||[], sessions: sessions||[], reminders: reminders||[], memory: memory||[], notes: notes||"" });
 }
 
+// Google Ads conversion signal: fire `sign_up` ONCE for a genuinely new account.
+// SIGNED_IN also fires for returning logins (and can re-fire on reload), which would
+// inflate the conversion count and mislead bidding — so we require a freshly created
+// account AND remember that we've already counted this user. This is the GA4 event to
+// mark as a key event and import into Google Ads. No-ops if gtag is blocked.
+const SIGNUP_TRACKED_KEY = "ankora-signup-tracked";
+function trackSignupConversion(user) {
+  try {
+    if (!user?.id) return;
+    const createdMs = Date.parse(user.created_at || "");
+    if (isNaN(createdMs) || Date.now() - createdMs > 10 * 60 * 1000) return;  // returning user
+    if (window.localStorage.getItem(SIGNUP_TRACKED_KEY) === user.id) return;  // already counted
+    window.localStorage.setItem(SIGNUP_TRACKED_KEY, user.id);
+    if (typeof window.gtag === "function") window.gtag("event", "sign_up", { method: "supabase" });
+  } catch {}
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -648,7 +665,7 @@ export default function Ankora() {
       setAuthLoading(false);
       if (s?.user) {
         posthog.identify(s.user.id, { email: s.user.email });
-        if (event === "SIGNED_IN") posthog.capture("signed_in");
+        if (event === "SIGNED_IN") { posthog.capture("signed_in"); trackSignupConversion(s.user); }
       } else if (event === "SIGNED_OUT") {
         posthog.reset();
       }

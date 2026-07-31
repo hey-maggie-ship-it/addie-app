@@ -23,6 +23,17 @@
   <meta name="twitter:description" content="The AI that gets you through the first 10 minutes. Dump the overwhelm, get one clear next step, stay anchored." />
   <meta name="twitter:image" content="https://ankorahq.com/og-image-v2.jpg" />
   <link rel="icon" href="/apple-touch-icon.png" />
+  <!-- Google Analytics (GA4). Same measurement ID as the app so the
+       ankorahq.com -> app.ankorahq.com hop stays ONE session and the Google Ads
+       gclid survives it (the _ga / _gcl_au cookies are set on .ankorahq.com).
+       Product analytics stays in PostHog; GA4 is here for ads + SEO. -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-KVSZ6CD1EY"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-KVSZ6CD1EY');
+  </script>
   <script>
     // Which headline test this page carries; variant pages (/stuck, /team-of-one) override it.
     window.LANDING_VARIANT = 'stuck';
