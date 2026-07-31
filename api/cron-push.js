@@ -48,18 +48,39 @@ export const withinWindow = (currentMins, targetMins) =>
 // daily — pinging every day trains a forgetful user to mute or uninstall.
 export const isLapseDay = (days) => days === 2 || days === 4 || (days >= 7 && (days - 7) % 7 === 0);
 
+// Whole days a task has been sitting in its CURRENT bucket. Prefers movedAt (stamped
+// by the app on bucket moves) so a week-old task moved to "today" yesterday counts as
+// 1 day, not 7; falls back to the creation timestamp genId embeds in the id
+// ("t<ms>x<seq>"). Used to pressure-test a stale "today" task instead of pinging the
+// identical "want to start?" every morning. 0 when neither is parseable.
+export const taskAgeDays = (t, nowMs = Date.now()) => {
+  if (!t) return 0;
+  const moved = t.movedAt ? Date.parse(t.movedAt) : NaN;
+  const ms = !isNaN(moved) ? moved : parseInt(String(t.id || "").replace(/^\D+/, ""), 10);
+  if (isNaN(ms)) return 0;
+  return Math.max(0, Math.floor((nowMs - ms) / 864e5));
+};
+
 // Build the notification (short teaser) + the opener (Ankora's first chat line,
 // the message the app shows when the notification is tapped). Returns null if the
 // slot has nothing worth saying.
-export function composeNudge(kind, { todayTask, anyTask }) {
+export function composeNudge(kind, { todayTask, anyTask, todayAgeDays = 0, staleOk = true }) {
   if (kind === "lapse") {
+    // Board-aware: if there's something to return to, offer to pick it back up. If the
+    // board is empty a "reset" makes no sense — invite them to plan the day instead.
+    if (anyTask) {
+      return {
+        kind,
+        title: "👋 No pressure",
+        body: `No catch-up, no guilt. Pick "${truncate(anyTask, 30)}" back up?`,
+        opener: `Hey, good to see you. No catch-up and no guilt about the gap. "${anyTask}" is still on your board if you want it, we could give it ten quiet minutes together. Or start somewhere completely new, your call.`,
+      };
+    }
     return {
       kind,
-      title: "👋 No pressure",
-      body: "No catch-up needed. Want a 10-minute reset?",
-      opener: anyTask
-        ? `Hey, good to see you. No catch-up and no guilt about the gap. If you want, we can take just one thing, maybe "${anyTask}", and give it ten quiet minutes together. Or start somewhere completely new, your call.`
-        : `Hey, good to see you. No catch-up and no guilt about the gap. Want to pick one small thing and give it ten quiet minutes together?`,
+      title: "👋 New day",
+      body: "Clean slate. Want to plan today together?",
+      opener: `Hey, good to see you. No catch-up and no guilt about the gap, your board's a clean slate. Want to figure out the one thing that would make today feel good and set it up together?`,
     };
   }
   if (kind === "checkback") {
@@ -73,6 +94,30 @@ export function composeNudge(kind, { todayTask, anyTask }) {
   }
   // morning check-in
   if (todayTask) {
+    // A task that's ridden along on "today" for days doesn't need the same "want to
+    // start?" nudge again — it needs pressure-testing. But never daily (staleOk is a
+    // cooldown the caller controls): the morning after they answered a pressure-test,
+    // they get the normal check-in, not the same interrogation again. Keep the
+    // openers decisive — one question, a default move, and a guilt-free out — not a
+    // multi-choice quiz an overwhelmed person has to grade themselves against.
+    if (staleOk && todayAgeDays >= 7) {
+      return {
+        kind: "morning",
+        stale: true,
+        title: "☀️ Still on today",
+        body: `"${truncate(todayTask, 34)}" has sat ${todayAgeDays} days. Keep it or let it go?`,
+        opener: `Morning. Real talk, said kindly: "${todayTask}" has been on today for ${todayAgeDays} days. My honest read is it's either too big or it's stopped mattering. So let's make it easy — we cut it down to a ten-minute version and start it right now, or you drop it with zero guilt and free up the space. Which one feels true? (And if something else keeps getting in the way, name it and we'll get you unstuck.)`,
+      };
+    }
+    if (staleOk && todayAgeDays >= 3) {
+      return {
+        kind: "morning",
+        stale: true,
+        title: "☀️ Morning",
+        body: `"${truncate(todayTask, 34)}" has been on today ${todayAgeDays} days. Still worth it?`,
+        opener: `Morning. "${todayTask}" has ridden along on today for ${todayAgeDays} days. No judgment, quick gut check: is it still the thing that matters? If yes, let's shrink it to a ten-minute first move this morning. If it's lost its pull, we move it to a real day or let it go, zero guilt. What's your gut say?`,
+      };
+    }
     return {
       kind: "morning",
       title: "☀️ Morning",
@@ -170,8 +215,16 @@ export default async function handler(req, res) {
       );
 
       const openTasks = Array.isArray(row.tasks) ? row.tasks.filter(t => t && !t.done) : [];
-      const todayTask = openTasks.find(t => t.bucket === "today")?.text || null;
-      const anyTask = (openTasks.find(t => t.bucket === "today") || openTasks[0])?.text || null;
+      const todayTaskItem = openTasks.find(t => t.bucket === "today") || null;
+      const todayTask = todayTaskItem?.text || null;
+      const anyTask = (todayTaskItem || openTasks[0])?.text || null;
+      const todayAgeDays = todayTaskItem ? taskAgeDays(todayTaskItem, now.getTime()) : 0;
+      // Pressure-test cooldown: at most every 3 days. Asking "still worth it?" every
+      // single morning after day 3 is nagging, and nagging gets notifications muted.
+      const staleGapDays = p.lastStaleNudgeDate
+        ? Math.round((Date.parse(localDateStr) - Date.parse(p.lastStaleNudgeDate)) / 864e5)
+        : Infinity;
+      const staleOk = staleGapDays >= 3;
 
       const [rHour, rMin] = p.reminderTime.split(":").map(Number);
       const morningMins = rHour * 60 + rMin;
@@ -186,7 +239,7 @@ export default async function handler(req, res) {
         if (daysSinceActive >= 2) {
           if (isLapseDay(daysSinceActive)) nudge = composeNudge("lapse", { todayTask, anyTask });
         } else {
-          nudge = composeNudge("morning", { todayTask, anyTask });
+          nudge = composeNudge("morning", { todayTask, anyTask, todayAgeDays, staleOk });
         }
         guardField = "lastReminderDate";
       }
@@ -222,6 +275,7 @@ export default async function handler(req, res) {
           profile: {
             ...p,
             [guardField]: localDateStr,
+            ...(nudge.stale ? { lastStaleNudgeDate: localDateStr } : {}),
             pendingNudge: { id: nudgeId, kind: nudge.kind, opener: nudge.opener, createdAt: now.toISOString() },
           },
         })

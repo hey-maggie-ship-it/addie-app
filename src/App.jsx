@@ -173,10 +173,12 @@ function buildSystemPrompt(tasks, grocery, profile, memory = [], notes = "", cal
   const done   = tasks.filter(t => t.done && t.completedAt && fmtISO(new Date(t.completedAt)) === todayStr);
   const gItems = grocery.filter(g => !g.checked);
   const withNext = tasks.filter(t => t.nextStep && !t.done);
-  // Task ids embed their creation time ("t"+Date.now()), so we can surface how long
-  // something has sat without a migration. Tag anything sitting a week or more so
-  // Ankora can resurface it and ask if it's still worth keeping.
-  const ageTag = (t) => { const ms = parseInt(String(t.id).replace(/^\D+/, ""), 10); if (isNaN(ms)) return ""; const d = Math.floor((now - ms) / 864e5); return d >= 7 ? ` [sitting ${d}d]` : ""; };
+  // How long a task has sat in its current bucket: movedAt (stamped on bucket moves)
+  // when present, else the creation time task ids embed ("t"+Date.now()). Tag
+  // anything sitting 3+ days so Ankora can pressure-test it — this matches the
+  // stale-task morning nudge, so tapping that notification lands on a coach that
+  // already knows the task has been sitting.
+  const ageTag = (t) => { const moved = t.movedAt ? Date.parse(t.movedAt) : NaN; const ms = !isNaN(moved) ? moved : parseInt(String(t.id).replace(/^\D+/, ""), 10); if (isNaN(ms)) return ""; const d = Math.floor((now - ms) / 864e5); return d >= 3 ? ` [sitting ${d}d]` : ""; };
   const memList = (memory || []).filter(m => m && m.text);
   const memoryBlock = memList.length
     ? `\n\nWHAT YOU'VE LEARNED ABOUT THIS USER (durable memory carried across every session — use it to personalize naturally; do NOT recite it back like a list or announce that you remember):\n${memList.map(m => `- ${m.text}`).join("\n")}`
@@ -1842,7 +1844,7 @@ export default function Ankora() {
     }
     else if (s.type === "move") {
       // MAX_TODAY is a soft default — if the user confirmed a move to today, honor it.
-      setTasks(p => p.map(t => t.id===s.targetId ? {...t, bucket:s.bucket} : t));
+      setTasks(p => p.map(t => t.id===s.targetId ? {...t, bucket:s.bucket, movedAt:new Date().toISOString()} : t));
       showToast(`Moved to ${BUCKET_STYLE[s.bucket].label}`);
     }
     else if (s.type === "timer") { startTimer(s.minutes, s.label); }
@@ -1867,7 +1869,9 @@ export default function Ankora() {
   });
   const completeTask = (id) => { const t = tasks.find(t=>t.id===id); setTasks(p => p.map(t => t.id===id?{...t,done:true,completedAt:new Date().toISOString()}:t)); setMenuId(null); showToast(`✓  ${t?.text}`); };
   const deleteTask = (id) => { setTasks(p => p.filter(t => t.id!==id)); setMenuId(null); };
-  const moveTask = (id, b) => { setTasks(p => p.map(t => t.id===id?{...t,bucket:b}:t)); setMenuId(null); };
+  // movedAt marks when a task last changed bucket, so "how long has this sat on
+  // today" measures time in the CURRENT bucket, not since creation.
+  const moveTask = (id, b) => { setTasks(p => p.map(t => t.id===id?{...t,bucket:b,movedAt:new Date().toISOString()}:t)); setMenuId(null); };
   const startEdit = (t) => { setEditingId(t.id); setEditText(t.text); setMenuId(null); };
   const saveEdit = (id) => { if (editText.trim()) setTasks(p => p.map(t => t.id===id?{...t,text:editText.trim()}:t)); setEditingId(null); setEditText(""); };
   const cancelEdit = () => { setEditingId(null); setEditText(""); };
