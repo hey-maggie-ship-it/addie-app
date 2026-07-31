@@ -163,6 +163,7 @@ export default async function handler(req, res) {
   const now = new Date();
   let timersFired = 0;
   let nudgesFired = 0;
+  let staleNudgesFired = 0;   // denominator for the pressure-test tap rate (see response below)
 
   // ── 1. Fire elapsed timer alarms ──
   const { data: duePushes } = await adminClient
@@ -276,14 +277,21 @@ export default async function handler(req, res) {
             ...p,
             [guardField]: localDateStr,
             ...(nudge.stale ? { lastStaleNudgeDate: localDateStr } : {}),
-            pendingNudge: { id: nudgeId, kind: nudge.kind, opener: nudge.opener, createdAt: now.toISOString() },
+            // stale/ageDays ride along purely for analytics: they let the app tag the
+            // nudge_opened event so a pressure-test tap is distinguishable from a
+            // normal morning tap (pressure-tests are the riskiest copy we send).
+            pendingNudge: {
+              id: nudgeId, kind: nudge.kind, opener: nudge.opener, createdAt: now.toISOString(),
+              stale: !!nudge.stale, ageDays: nudge.stale ? todayAgeDays : 0,
+            },
           },
         })
         .eq("user_id", row.user_id);
 
       nudgesFired++;
+      if (nudge.stale) staleNudgesFired++;
     } catch {}
   }
 
-  return res.status(200).json({ ok: true, timersFired, nudgesFired });
+  return res.status(200).json({ ok: true, timersFired, nudgesFired, staleNudgesFired });
 }

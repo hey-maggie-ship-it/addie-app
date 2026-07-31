@@ -1556,7 +1556,16 @@ export default function Ankora() {
     setLastActivity(Date.now());
     // Consume it so it can't re-trigger; the cleared profile syncs to the cloud.
     setProfile(p => (p ? { ...p, pendingNudge: null } : p));
-    try { posthog.capture("nudge_opened", { kind: nudge.kind }); } catch {}
+    // stale/age_days separate a stale-task pressure-test from a normal morning ping.
+    // Break nudge_opened down by `stale` to see whether the harder copy actually
+    // earns the tap, and by age_days to see if the 3d/7d thresholds are right.
+    try {
+      posthog.capture("nudge_opened", {
+        kind: nudge.kind,
+        stale: !!nudge.stale,
+        age_days: nudge.ageDays || 0,
+      });
+    } catch {}
   };
   const startNudgeRef = useRef(startNudgeConversation);
   useEffect(() => { startNudgeRef.current = startNudgeConversation; });
