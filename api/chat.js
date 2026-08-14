@@ -113,7 +113,12 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 1000,
+        // 1000 was set before capture mode told Ankora to emit one suggestion per
+        // braindumped item. A long reply plus a dozen SUGGESTIONS lines can run past
+        // it, and truncation lands mid-block: the tail items are silently dropped
+        // while the prose still claims they were captured. The client reports
+        // stop_reason:"max_tokens" to PostHog as `reply_truncated`.
+        max_tokens: 2000,
         system,
         messages,
       }),

@@ -1481,20 +1481,29 @@ export default function Ankora() {
     if (!hdr) return { clean: text, suggestions: [] };
     const clean = text.slice(0, hdr.index).trim();
     const body = text.slice(hdr.index + hdr[0].length);
+    // Item text is matched greedily, so a quoted phrase INSIDE the text survives
+    // ("the "senior panel" bloodwork"). The cost is that a trailing field the
+    // format doesn't define gets swallowed too: `| "Pay the invoice" | next:"find
+    // the link"` landed on the board as the literal text `Pay the invoice" |
+    // next:"find the link`. Cut anything from a closing-quote-then-field boundary.
+    const cutFields = (s) => String(s).replace(/"\s*\|\s*[a-z]+:.*$/i, "").trim();
     const suggestions = body.split("\n")
       .map(s => s.trim())
       .filter(s => /type:/i.test(s))
       .map((raw, i) => {
-      // Normalize each line to a leading "- " bullet so the matchers below are stable.
-      const l = ("- " + raw.replace(/^[-*•\s]+/, "")).replace(/^- - /, "- ");
+      // Normalize each line to a leading "- " bullet so the matchers below are
+      // stable, and fold typographic quotes to straight ones — the model emits
+      // “curly” quotes often enough, and every matcher here keys on a literal ",
+      // so a curly pair silently dropped the whole suggestion.
+      const l = ("- " + raw.replace(/^[-*•\s]+/, "")).replace(/^- - /, "- ").replace(/[“”]/g, '"');
       const mem = l.match(/- type:remember \| "(.+)"/);
-      if (mem) return { id: "s"+Date.now()+i, type: "remember", text: mem[1] };
+      if (mem) return { id: "s"+Date.now()+i, type: "remember", text: cutFields(mem[1]) };
       const tim = l.match(/- type:timer \| minutes:(\d+)(?: \| label:"([^"]*)")?/);
       if (tim) return { id: "s"+Date.now()+i, type: "timer", minutes: parseInt(tim[1]), label: tim[2] || "" };
       const cal = l.match(/- type:calendar \| "(.+)" \| when:"([^"]+)"(?: \| minutes:(\d+))?/);
-      if (cal) return { id: "s"+Date.now()+i, type: "calendar", title: cal[1], when: cal[2], minutes: cal[3] ? parseInt(cal[3]) : 60 };
+      if (cal) return { id: "s"+Date.now()+i, type: "calendar", title: cutFields(cal[1]), when: cal[2], minutes: cal[3] ? parseInt(cal[3]) : 60 };
       const rem = l.match(/- type:reminder \| "(.+)" \| when:"([^"]+)"/);
-      if (rem) return { id: "s"+Date.now()+i, type: "reminder", text: rem[1], when: rem[2] };
+      if (rem) return { id: "s"+Date.now()+i, type: "reminder", text: cutFields(rem[1]), when: rem[2] };
       const comp = l.match(/- type:complete \| id:(\S+)/);
       if (comp) return { id: "s"+Date.now()+i, type: "complete", targetId: comp[1] };
       const del = l.match(/- type:delete \| id:(\S+)/);
@@ -1502,23 +1511,23 @@ export default function Ankora() {
       const grm = l.match(/- type:grocery-remove \| id:(\S+)/);
       if (grm) return { id: "s"+Date.now()+i, type: "grocery-remove", targetId: grm[1] };
       const grs = l.match(/- type:grocery-replace \| id:(\S+) \| "(.+)" \| store:"(.+)"/);
-      if (grs) return { id: "s"+Date.now()+i, type: "grocery-replace", targetId: grs[1], text: grs[2], store: grs[3] };
+      if (grs) return { id: "s"+Date.now()+i, type: "grocery-replace", targetId: grs[1], text: cutFields(grs[2]), store: grs[3] };
       const grp = l.match(/- type:grocery-replace \| id:(\S+) \| "(.+)"/);
-      if (grp) return { id: "s"+Date.now()+i, type: "grocery-replace", targetId: grp[1], text: grp[2] };
+      if (grp) return { id: "s"+Date.now()+i, type: "grocery-replace", targetId: grp[1], text: cutFields(grp[2]) };
       const gs = l.match(/- type:grocery \| "(.+)" \| store:"(.+)"/);
-      if (gs) return { id: "s"+Date.now()+i, type: "grocery", text: gs[1], store: gs[2] };
+      if (gs) return { id: "s"+Date.now()+i, type: "grocery", text: cutFields(gs[1]), store: gs[2] };
       const g = l.match(/- type:grocery \| "(.+)"/);
-      if (g) return { id: "s"+Date.now()+i, type: "grocery", text: g[1] };
+      if (g) return { id: "s"+Date.now()+i, type: "grocery", text: cutFields(g[1]) };
       const ns = l.match(/- type:nextstep \| id:(\S+) \| "(.+)"/);
-      if (ns) return { id: "s"+Date.now()+i, type: "nextstep", targetId: ns[1], text: ns[2] };
+      if (ns) return { id: "s"+Date.now()+i, type: "nextstep", targetId: ns[1], text: cutFields(ns[2]) };
       const rn = l.match(/- type:replace \| id:(\S+) \| "(.+)" \| next:"(.+)"/);
-      if (rn) return { id: "s"+Date.now()+i, type: "replace", targetId: rn[1], text: rn[2], nextStep: rn[3] };
+      if (rn) return { id: "s"+Date.now()+i, type: "replace", targetId: rn[1], text: cutFields(rn[2]), nextStep: rn[3] };
       const r = l.match(/- type:replace \| id:(\S+) \| "(.+)"/);
-      if (r) return { id: "s"+Date.now()+i, type: "replace", targetId: r[1], text: r[2] };
+      if (r) return { id: "s"+Date.now()+i, type: "replace", targetId: r[1], text: cutFields(r[2]) };
       const mv = l.match(/- type:move \| id:(\S+) \| bucket:(today|week|parked)/);
       if (mv) return { id: "s"+Date.now()+i, type: "move", targetId: mv[1], bucket: mv[2] };
       const t = l.match(/- type:task \| bucket:(today|week|parked) \| "(.+)"/);
-      if (t) return { id: "s"+Date.now()+i, type: "task", bucket: t[1], text: t[2] };
+      if (t) return { id: "s"+Date.now()+i, type: "task", bucket: t[1], text: cutFields(t[2]) };
       return null;
     }).filter(Boolean);
     return { clean, suggestions };
@@ -1701,6 +1710,11 @@ export default function Ankora() {
         return;
       }
       const raw = data.content?.find(b => b.type === "text")?.text || "Something went wrong.";
+      // A reply cut off at max_tokens loses the tail of the SUGGESTIONS block, so
+      // captured items vanish while the prose still says they landed (and the last
+      // half-written line can parse into a truncated task). The ceiling was raised,
+      // but track hits so this stays evidence rather than a hunch.
+      if (data.stop_reason === "max_tokens") { try { posthog.capture("reply_truncated", { chars: raw.length }); } catch {} }
       const { clean, suggestions } = parseSuggestions(raw);
       // Some suggestions apply silently, with no confirmation chip: durable memories,
       // plus low-stakes captures (new grocery items, reminders, and NEW board
@@ -1822,9 +1836,15 @@ export default function Ankora() {
             // complete/delete card only shows when the task is actually part of
             // this exchange — some word of it appears in the user's message or
             // Ankora's own reply. Otherwise nobody asked; drop it.
+            // The exchange includes the turn being ANSWERED, not just this one:
+            // Ankora names the task ("You've got 'Pay pest control invoice' on
+            // today's list") and the user replies "Paid!" — the task name is in
+            // neither userText nor clean, so the card was silently dropped while
+            // the reply still said "tap to confirm below." Proactive nudge
+            // openers make that the single most common way a task gets finished.
             if (c.type === "complete" || c.type === "delete") {
               const STOP = new Set(["the","and","for","with","about","that","this","from","your","you","get","its"]);
-              const ref = (userText + " " + clean).toLowerCase();
+              const ref = (userText + " " + clean + " " + (lastAssistant?.content || "")).toLowerCase();
               const mentioned = String(target.text).toLowerCase().replace(/[^\w\s]/g," ").split(/\s+/)
                 .some(w => w.length >= 3 && !STOP.has(w) && ref.includes(w));
               if (!mentioned) return false;
