@@ -106,7 +106,7 @@ export function composeNudge(kind, { todayTask, anyTask, todayAgeDays = 0, stale
         stale: true,
         title: "☀️ Still on today",
         body: `"${truncate(todayTask, 34)}" has sat ${todayAgeDays} days. Keep it or let it go?`,
-        opener: `Morning. Real talk, said kindly: "${todayTask}" has been on today for ${todayAgeDays} days. My honest read is it's either too big or it's stopped mattering. So let's make it easy — we cut it down to a ten-minute version and start it right now, or you drop it with zero guilt and free up the space. Which one feels true? (And if something else keeps getting in the way, name it and we'll get you unstuck.)`,
+        opener: `Morning. Real talk, said kindly: "${todayTask}" has been on today for ${todayAgeDays} days. My honest read is it's either too big or it's stopped mattering. So let's make it easy: we cut it down to a ten-minute version and start it right now, or you drop it with zero guilt and free up the space. Which one feels true? (And if something else keeps getting in the way, name it and we'll get you unstuck.)`,
       };
     }
     if (staleOk && todayAgeDays >= 3) {

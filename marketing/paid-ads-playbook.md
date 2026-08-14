@@ -103,6 +103,12 @@ The quiz lives at `landing/quiz/index.html`, the same static pattern as the guid
 
 ## Appendix A: Ad groups, keywords, destinations
 
+> **STOP. This set was rejected on 2026-08-02.** Google flagged it: *"Your ad
+> violates the Personalized advertising policy by using audience targeting based on
+> sensitive health information."* Mental health is a sensitive category, and the
+> `adhd` terms below are what trip it. **Use [Appendix A2](#appendix-a2-policy-safe-keyword-set-use-this-one) instead.**
+> Appendix A is kept only as the record of what was tried.
+
 Match types: `[exact]`, `"phrase"`. Start with AG1 + AG2.
 
 **AG1. ADHD coach / app** (solution-aware, highest intent) → `https://ankorahq.com/`
@@ -150,14 +156,105 @@ Match types: `[exact]`, `"phrase"`. Start with AG1 + AG2.
 "how to deal with mental load"
 ```
 
+## Appendix A2: Policy-safe keyword set (use this one)
+
+Written 2026-08-14 to clear the sensitive-health rejection. **Every keyword
+describes a state the searcher is in, never a condition they have.** That is the
+whole trick: "can't start tasks" is a behaviour, "adhd task paralysis" is a
+diagnosis. It is also the positioning we already decided on, so this is not a
+concession, it is the strategy catching up with the ad account.
+
+Two routes were possible. Appealing keeps the higher-intent `adhd` terms but costs
+days of back-and-forth with no guarantee, on an account that has never spent a
+dollar. Pivoting ships today. **Pivot. Revisit the appeal only if volume is too
+thin to learn from after 14 days.**
+
+Match types: `[exact]`, `"phrase"`. Start with AG1 + AG2.
+
+**AG1. Accountability / focus app** (solution-aware, highest intent) → `https://ankorahq.com/`
+```
+[accountability app]
+"accountability partner app"
+"ai accountability partner"
+"app to help me start tasks"
+"app that tells me what to do next"
+"daily focus coach app"
+"app to keep me on track"
+```
+
+**AG2. Can't start / task paralysis** → `https://ankorahq.com/guides/why-you-cant-start-tasks/` (A/B vs `/stuck`)
+```
+"task paralysis"
+"how to overcome task paralysis"
+"can't start tasks"
+"can't make myself do anything"
+"paralyzed by my to do list"
+"how to start when overwhelmed"
+```
+
+**AG3. Procrastination / boring tasks** → `https://ankorahq.com/guides/task-paralysis-vs-procrastination/`
+```
+"how to stop procrastinating"
+"how to make myself do boring tasks"
+"how to do boring tasks"
+"procrastination help app"
+```
+
+**AG4. Body doubling / accountability** → `https://ankorahq.com/guides/what-is-body-doubling/`
+```
+"body doubling app"
+"virtual body doubling"
+"body double for work"
+"coworking focus app"
+```
+
+**AG5. Overwhelm / mental load** (optional) → `https://ankorahq.com/stuck` (or `/quiz/`)
+```
+"too much to do overwhelmed"
+"brain dump app"
+"get everything out of my head"
+"how to deal with mental load"
+```
+
+**Three things that also have to change, or the pivot only half works:**
+
+1. **Ad copy.** Delete the shared headline `For ADHD Brains` from Appendix C. It
+   asserts something about the reader's health and invites the same flag on the ad
+   itself. Replacements, all under 30 characters:
+   ```
+   For Brains That Stall
+   Built for the Overwhelmed
+   If Starting Is the Hard Part
+   ```
+   Every other headline and description in Appendix C is already state-based. Leave
+   them alone.
+2. **Negative keywords.** Add `adhd`, `add`, `neurodivergent`, `autism`, `autistic`,
+   and `executive dysfunction` to the Appendix B list. Counterintuitive, but with
+   phrase match a query like *"adhd accountability app"* can still trigger AG1 and
+   put a health query back in the account. Blocking them keeps the account clean
+   while the guides keep earning that traffic organically for free.
+3. **Landing pages are a separate question.** The personalized advertising policy
+   is about targeting; it does not require scrubbing ADHD from the site, and you
+   should not, it is who the product is for and it is what the SEO ranks on. Just
+   be aware that a destination which is *entirely* an ADHD pitch can draw a second
+   look, so AG1 pointing at the homepage rather than an ADHD guide is the safer
+   default.
+
+**After editing, expect a re-review.** Ads usually clear in under a day. If the
+same flag comes back on the new set, it is the ad copy or the destination, not the
+keywords, so work down the list above in order.
+
 ## Appendix B: Negative keywords (campaign-level shared list, add day one)
 
 ```
 free, crack, torrent, pdf, reddit, meaning, definition, symptoms, test, quiz,
 diagnosis, "do i have", "is it adhd", medication, adderall, vyvanse, jobs, salary,
-movie, film, prosthetic, stunt, actor, child, children, kids, meme, book, youtube
+movie, film, prosthetic, stunt, actor, child, children, kids, meme, book, youtube,
+adhd, add, neurodivergent, autism, autistic, "executive dysfunction"
 ```
 Notes: `movie/film/stunt/actor/prosthetic` kill the film meaning of "body doubling." `quiz/test/diagnosis` searchers want self-diagnosis, not a purchase, so exclude them here even though you have a quiz (that's for social + as an ad landing, not for capturing "adhd quiz" search traffic).
+
+The health terms on the last line were added 2026-08-14 as part of the [Appendix A2](#appendix-a2-policy-safe-keyword-set-use-this-one) pivot. They are there to stop phrase-match keywords from pulling health queries back into an account that was just rejected for exactly that. You lose some high-intent traffic; the guides keep earning it organically instead.
 
 ## Appendix C: Ad copy (Responsive Search Ads)
 
@@ -167,7 +264,7 @@ Google limits: headlines **≤30 chars**, descriptions **≤90 chars**. Aim for 
 ```
 One Clear Next Step
 Not a To-Do List. A Coach.
-For ADHD Brains
+For Brains That Stall
 Free to Start, $5/mo Pro
 It Remembers How You Work
 Get Unstuck in 10 Minutes
